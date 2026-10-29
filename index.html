@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>My Money Tracker</title>
+
+    <!-- Bootstrap CSS -->
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+    >
+
+    <!-- Bootstrap Icons -->
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+    >
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="app-container">
+
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
+
+            <div class="brand">
+                <i class="bi bi-wallet2 brand-icon"></i>
+                <h2>My Money <span>Tracker</span></h2>
+                <p>Plan • Track • Save</p>
+            </div>
+
+            <nav class="sidebar-nav">
+
+                <a href="#dashboard" class="nav-link active">
+                    <i class="bi bi-house-door-fill"></i>
+                    <span>Dashboard</span>
+                </a>
+
+                <a href="#income" class="nav-link">
+                    <i class="bi bi-plus-circle-fill"></i>
+                    <span>Add Income</span>
+                </a>
+
+                <a href="#expense" class="nav-link">
+                    <i class="bi bi-dash-circle-fill"></i>
+                    <span>Add Expense</span>
+                </a>
+
+                <a href="#budget" class="nav-link">
+                    <i class="bi bi-calendar3"></i>
+                    <span>Monthly Budget</span>
+                </a>
+
+                <a href="#analytics" class="nav-link">
+                    <i class="bi bi-bar-chart-fill"></i>
+                    <span>Savings & Analytics</span>
+                </a>
+
+                <a href="#ai-assistant" class="nav-link">
+                    <i class="bi bi-robot"></i>
+                    <span>AI Assistant</span>
+                </a>
+
+
+            </nav>
+
+            <div class="sidebar-bottom">
+                <i class="bi bi-stars"></i>
+                <h5>Dream Big...</h5>
+                <p>Save More, Achieve More!</p>
+            </div>
+
+        </aside>
+
+
+        <!-- MAIN CONTENT -->
+        <main class="main-content" id="dashboard">
+
+            <!-- HEADER -->
+            <header class="topbar">
+
+                <div class="welcome">
+                    <h1>Welcome Back, <span>Manoj!</span></h1>
+                    <p>Take control of your money, build a better future!</p>
+                </div>
+
+                <div class="profile-area">
+                    <div class="today-date">
+                        <i class="bi bi-calendar-event"></i>
+                        <span id="current-date">Today</span>
+                    </div>
+
+                    <div class="profile">
+                        <i class="bi bi-person-circle"></i>
+                        <span>Manoj M</span>
+                    </div>
+                </div>
+
+            </header>
+
+
+            <!-- SUMMARY CARDS -->
+            <section class="summary-grid">
+
+                <article class="summary-card income-card">
+                    <div class="summary-icon">
+                        <i class="bi bi-cash-stack"></i>
+                    </div>
+
+                    <div class="summary-info">
+                        <p>Total Income</p>
+                        <small>This Month</small>
+                        <h2 id="total-income">₹0</h2>
+                        <span>Money received</span>
+                    </div>
+                </article>
+
+
+                <article class="summary-card expense-card">
+                    <div class="summary-icon">
+                        <i class="bi bi-wallet-fill"></i>
+                    </div>
+
+                    <div class="summary-info">
+                        <p>Total Expenses</p>
+                        <small>This Month</small>
+                        <h2 id="total-expenses">₹0</h2>
+                        <span>Money spent</span>
+                    </div>
+                </article>
+
+
+                <article class="summary-card savings-card">
+                    <div class="summary-icon">
+                        <i class="bi bi-piggy-bank-fill"></i>
+                    </div>
+
+                    <div class="summary-info">
+                        <p>Available Balance</p>
+                        <small>Received Income - Expenses</small>
+                        <h2 id="available-balance">₹0</h2>
+                        <span>Your current balance</span>
+                    </div>
+                </article>
+
+
+                <article class="summary-card budget-card" id="budget">
+                    <div class="summary-icon">
+                        <i class="bi bi-bullseye"></i>
+                    </div>
+
+                    <div class="summary-info">
+                        <p>Monthly Limit</p>
+                        <small>Your spending budget</small>
+                        <h2 id="monthly-limit">₹0</h2>
+
+                        <div class="progress budget-progress">
+                            <div
+                                class="progress-bar"
+                                id="budget-progress-bar"
+                                role="progressbar"
+                                style="width: 0%"
+                                aria-valuenow="0"
+                                aria-valuemin="0"
+                                aria-valuemax="100">
+                            </div>
+                        </div>
+
+                        <span id="budget-status">0% used</span>
+                    </div>
+                </article>
+
+            </section>
+
+
+            <!-- CHARTS AND QUICK ACTIONS -->
+            <section class="middle-grid" id="analytics">
+
+                <article class="panel monthly-panel">
+
+                    <div class="panel-heading">
+                        <h3>
+                            <i class="bi bi-graph-up-arrow"></i>
+                            Monthly Overview
+                        </h3>
+
+                        <span class="panel-badge">Income & Expenses</span>
+                    </div>
+
+                    <div id="monthly-overview-data" class="analytics-data" aria-live="polite">
+                        <!-- Monthly income, expenses, and pending salary dates are rendered here. -->
+                    </div>
+
+                </article>
+
+
+                <article class="panel breakdown-panel">
+
+                    <div class="panel-heading">
+                        <h3>
+                            <i class="bi bi-pie-chart-fill"></i>
+                            Expense Breakdown
+                        </h3>
+                    </div>
+
+                    <div id="expense-breakdown-data" class="analytics-data" aria-live="polite">
+                        <!-- Monthly expense totals by category are rendered here. -->
+                    </div>
+
+                </article>
+
+
+                <article class="panel quick-panel">
+
+                    <div class="panel-heading">
+                        <h3>
+                            <i class="bi bi-lightning-charge-fill"></i>
+                            Quick Actions
+                        </h3>
+                    </div>
+
+                    <div class="quick-actions">
+
+                        <a href="#income" class="action-button action-income">
+                            <i class="bi bi-plus-circle-fill"></i>
+                            <span>Add Income</span>
+                        </a>
+
+                        <a href="#expense" class="action-button action-expense">
+                            <i class="bi bi-dash-circle-fill"></i>
+                            <span>Add Expense</span>
+                        </a>
+
+                        <a href="#budget" class="action-button action-budget">
+                            <i class="bi bi-calendar-check-fill"></i>
+                            <span>Set Budget</span>
+                        </a>
+
+                        <a href="#ai-assistant" class="action-button action-ai">
+                            <i class="bi bi-robot"></i>
+                            <span>AI Assistant</span>
+                        </a>
+
+                    </div>
+
+                </article>
+
+            </section>
+
+
+            <!-- LOWER SECTION -->
+            <section class="bottom-grid">
+
+                <!-- TODAY'S STATUS -->
+                <article class="panel status-panel">
+
+                    <div class="panel-heading">
+                        <h3>
+                            <i class="bi bi-check-circle-fill"></i>
+                            Today's Status
+                        </h3>
+                    </div>
+
+                    <div class="status-content">
+
+                        <div class="status-icon">
+                            <i class="bi bi-wallet2"></i>
+                        </div>
+
+                        <h4>Daily Money Summary</h4>
+
+                        <p>Track today's income and expenses.</p>
+
+                        <div class="status-details">
+                            <div>
+                                <span>Income Received</span>
+                                <strong id="today-income">₹0</strong>
+                            </div>
+
+                            <div>
+                                <span>Today's Expenses</span>
+                                <strong id="today-expenses">₹0</strong>
+                            </div>
+                        </div>
+
+                    </div>
+
+                </article>
+
+
+                <!-- RECENT TRANSACTIONS -->
+                <article class="panel transactions-panel">
+
+                    <div class="panel-heading">
+                        <h3>
+                            <i class="bi bi-clock-history"></i>
+                            Recent Transactions
+                        </h3>
+                    </div>
+
+                    <div class="table-responsive">
+
+                        <table class="table transaction-table">
+
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Category</th>
+                                    <th>Amount</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+
+                            <tbody id="transaction-list">
+
+                                <tr>
+                                    <td colspan="5" class="empty-message">
+                                        No transactions yet.
+                                        Add your first income or expense!
+                                    </td>
+                                </tr>
+
+                            </tbody>
+
+                        </table>
+
+                    </div>
+
+                </article>
+
+
+                <!-- AI ASSISTANT -->
+                <article class="panel ai-panel" id="ai-assistant">
+
+                    <div class="panel-heading">
+                        <h3>
+                            <i class="bi bi-robot"></i>
+                            AI Money Assistant
+                        </h3>
+
+                        <span class="ai-badge">SMART</span>
+                    </div>
+
+                    <div class="ai-content">
+
+                        <div class="ai-icon">
+                            <i class="bi bi-stars"></i>
+                        </div>
+
+                        <h4>Your Personal Money Guide</h4>
+
+                        <p>
+                            Get smart suggestions to control expenses
+                            and improve your savings.
+                        </p>
+
+                        <button type="button" class="ai-chat-button">
+                            <i class="bi bi-chat-dots-fill"></i>
+                            Chat with AI
+                        </button>
+
+                        <small>
+                            AI assistance will be connected in a later stage.
+                        </small>
+
+                    </div>
+
+                </article>
+
+            </section>
+
+
+            <!-- ADD INCOME SECTION -->
+            <section class="panel form-panel" id="income">
+
+                <div class="panel-heading">
+                    <h3>
+                        <i class="bi bi-plus-circle-fill"></i>
+                        Add Daily Income
+                    </h3>
+                </div>
+
+                <form id="income-form" class="row g-3">
+
+                    <div class="col-md-4">
+                        <label for="income-date" class="form-label">
+                            Work Date
+                        </label>
+
+                        <input
+                            type="date"
+                            class="form-control"
+                            id="income-date"
+                            max=""
+                            required>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label for="income-amount" class="form-label">
+                            Expected Wages (₹)
+                        </label>
+
+                        <input
+                            type="number"
+                            class="form-control"
+                            id="income-amount"
+                            min="1"
+                            step="0.01"
+                            placeholder="Enter amount"
+                            required>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label for="income-note" class="form-label">
+                            Work Details
+                        </label>
+
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="income-note"
+                            placeholder="e.g. Electrician helper">
+                    </div>
+
+                    <div class="col-12">
+                        <button type="submit" class="submit-button">
+                            <i class="bi bi-plus-circle"></i>
+                            Save Income
+                        </button>
+                    </div>
+
+                </form>
+
+            </section>
+
+
+            <!-- ADD EXPENSE SECTION -->
+            <section class="panel form-panel" id="expense">
+
+                <div class="panel-heading">
+                    <h3>
+                        <i class="bi bi-dash-circle-fill"></i>
+                        Add Daily Expense
+                    </h3>
+                </div>
+
+                <form id="expense-form" class="row g-3">
+
+                    <div class="col-md-4">
+                        <label for="expense-date" class="form-label">
+                            Expense Date
+                        </label>
+
+                        <input
+                            type="date"
+                            class="form-control"
+                            id="expense-date"
+                            required>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label for="expense-amount" class="form-label">
+                            Amount (₹)
+                        </label>
+
+                        <input
+                            type="number"
+                            class="form-control"
+                            id="expense-amount"
+                            min="1"
+                            step="0.01"
+                            placeholder="Enter amount"
+                            required>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label for="expense-category" class="form-label">
+                            Category
+                        </label>
+
+                        <select
+                            class="form-select"
+                            id="expense-category"
+                            required>
+
+                            <option value="">Choose category</option>
+                            <option value="Food">Food</option>
+                            <option value="Travel">Travel</option>
+                            <option value="Tea">Tea & Snacks</option>
+                            <option value="Bills">Bills</option>
+                            <option value="Shopping">Shopping</option>
+                            <option value="Other">Other</option>
+
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label for="expense-note" class="form-label">
+                            Description
+                        </label>
+
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="expense-note"
+                            placeholder="What did you spend on?">
+                    </div>
+
+                    <div class="col-12">
+                        <button type="submit" class="submit-button expense-submit">
+                            <i class="bi bi-save"></i>
+                            Save Expense
+                        </button>
+                    </div>
+
+                </form>
+
+            </section>
+
+
+            <!-- FOOTER -->
+            <footer class="footer">
+                <p>
+                    My Money Tracker &copy; 2026 |
+                    Plan Smart, Spend Wise, Save More!
+                </p>
+            </footer>
+
+        </main>
+
+    </div>
+
+
+    <!-- Bootstrap JavaScript -->
+    <script
+        src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
+    </script>
+
+    <!-- Custom JavaScript -->
+    <script src="script.js"></script>
+
+</body>
+</html>
