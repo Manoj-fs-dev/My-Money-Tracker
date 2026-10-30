@@ -25,11 +25,11 @@ logging.basicConfig(level=logging.INFO)
 # MYSQL CONFIGURATION
 # ========================================
 
-DB_HOST = "localhost"
-DB_PORT = 3306
-DB_USER = "root"
-DB_PASSWORD = "MANOJARUNA@2005"
-DB_NAME = "money_tracker"
+DB_HOST = "my-money-db-my-money-tracker.c.aivencloud.com"
+DB_PORT = 14373
+DB_USER = "avnadmin"
+DB_PASSWORD = "AVNS_oMULUZZottkz5WtkBM1"
+DB_NAME = "defaultdb"
 
 
 # ========================================
