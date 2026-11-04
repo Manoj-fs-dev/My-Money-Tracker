@@ -2591,3 +2591,194 @@ select:-webkit-autofill {
     -webkit-box-shadow: 0 0 0 1000px #0d1525 inset;
     transition: background-color 9999s ease-in-out 0s;
 }
+
+
+/* ========================================
+   PREVIOUS MONTH PENDING SALARY
+======================================== */
+
+.previous-pending-panel {
+    margin-bottom: 25px;
+
+    background:
+        radial-gradient(
+            circle at 100% 0%,
+            rgba(33, 212, 164, 0.08),
+            transparent 45%
+        ),
+        var(--card-bg);
+
+    border: 1px solid rgba(33, 212, 164, 0.2);
+}
+
+.previous-pending-panel .panel-heading h3 i {
+    color: var(--green);
+}
+
+.previous-pending-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+
+    padding: 18px 20px;
+    margin-bottom: 18px;
+
+    background: rgba(33, 212, 164, 0.07);
+    border: 1px solid rgba(33, 212, 164, 0.2);
+    border-radius: 13px;
+}
+
+.previous-pending-total span {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.previous-pending-total strong {
+    color: var(--green);
+    font-size: 21px;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+
+    text-shadow: 0 0 12px rgba(33, 212, 164, 0.25);
+}
+
+.previous-pending-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.previous-pending-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+
+    padding: 15px 17px;
+
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+
+    transition: 0.25s ease;
+}
+
+.previous-pending-row:hover {
+    background: rgba(33, 212, 164, 0.045);
+    border-color: rgba(33, 212, 164, 0.3);
+
+    box-shadow: 0 0 15px rgba(33, 212, 164, 0.07);
+}
+
+.previous-pending-details {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    min-width: 0;
+}
+
+.previous-pending-details strong {
+    color: var(--text-primary);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.previous-pending-details span {
+    color: var(--text-secondary);
+    font-size: 10px;
+}
+
+.previous-pending-right {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.previous-pending-amount {
+    color: var(--green);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.previous-received-btn {
+    min-height: 34px;
+    padding: 7px 12px;
+
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+@media (max-width: 500px) {
+
+    .previous-pending-total {
+        padding: 15px;
+    }
+
+    .previous-pending-total span {
+        font-size: 10px;
+    }
+
+    .previous-pending-total strong {
+        font-size: 17px;
+    }
+
+    .previous-pending-row {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .previous-pending-right {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
+
+
+
+/* MONTHLY HISTORY BUTTON - NEW DESIGN */
+.sidebar .sidebar-nav a.history-button {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 12px !important;
+
+    width: calc(100% - 24px) !important;
+    margin: 18px 12px !important;
+    padding: 14px 16px !important;
+
+    color: #ffffff !important;
+    background: linear-gradient(120deg, #711cff 0%, #3425a8 55%, #087fd1 100%) !important;
+
+    border: 1px solid #a47aff !important;
+    border-radius: 12px !important;
+
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    text-decoration: none !important;
+
+    box-shadow: 0 0 15px rgba(115, 40, 255, 0.35) !important;
+    transition: all 0.3s ease !important;
+}
+
+.sidebar .sidebar-nav a.history-button > i:first-child {
+    color: #65faff !important;
+    font-size: 21px !important;
+}
+
+.sidebar .sidebar-nav a.history-button .history-arrow {
+    margin-left: auto !important;
+    color: #c9b4ff !important;
+    font-size: 14px !important;
+}
+
+.sidebar .sidebar-nav a.history-button:hover {
+    color: #ffffff !important;
+    background: linear-gradient(120deg, #9b35ff, #087fff) !important;
+    border-color: #55eaff !important;
+    transform: translateY(-3px) !important;
+    box-shadow: 0 0 12px #8b36ff, 0 0 25px rgba(0, 210, 255, .35) !important;
+}
