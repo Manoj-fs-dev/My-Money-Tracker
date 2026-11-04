@@ -54,6 +54,12 @@ const expenseNoteInput = $("#expense-note");
 const monthlyOverviewContainer = $("#monthly-overview-data");
 const expenseBreakdownContainer = $("#expense-breakdown-data");
 
+const previousMonthPendingContainer =
+    $("#previous-month-pending-data");
+
+const previousMonthLabel =
+    $("#previous-month-label");
+
 // ========================================
 // DATE AND CURRENCY HELPERS
 // ========================================
@@ -70,6 +76,22 @@ function getTodayDate() {
 
 function getCurrentMonth() {
     return getTodayDate().slice(0, 7);
+}
+
+
+function getPreviousMonth() {
+    const today = new Date();
+
+    const previous = new Date(
+        today.getFullYear(),
+        today.getMonth() - 1,
+        1
+    );
+
+    return [
+        previous.getFullYear(),
+        String(previous.getMonth() + 1).padStart(2, "0")
+    ].join("-");
 }
 
 function formatCurrency(amount) {
@@ -403,8 +425,7 @@ function showChoiceDialog({
             button.type = "button";
 
             button.className =
-                `neon-modal-btn ${
-                    config.className || "neon-btn-secondary"
+                `neon-modal-btn ${config.className || "neon-btn-secondary"
                 }`;
 
             button.textContent = config.label;
@@ -767,6 +788,124 @@ function updateMonthlySections() {
 }
 
 // ========================================
+// PREVIOUS MONTH PENDING SALARY
+// ========================================
+
+function updatePreviousMonthPendingSalary() {
+
+    const container = previousMonthPendingContainer;
+
+    if (!container) return;
+
+    const previousMonth = getPreviousMonth();
+
+    // Previous month name
+    const monthDate = new Date(
+        `${previousMonth}-01T00:00:00`
+    );
+
+    const monthName = new Intl.DateTimeFormat("en-IN", {
+        month: "long",
+        year: "numeric"
+    }).format(monthDate);
+
+    if (previousMonthLabel) {
+        previousMonthLabel.textContent = monthName;
+    }
+
+    // Income + Pending + Previous Month ONLY
+    const pendingItems = transactions
+        .filter((item) =>
+            item.type === "income" &&
+            item.status === "pending" &&
+            item.date.startsWith(previousMonth)
+        )
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+    const totalPending = pendingItems.reduce(
+        (sum, item) => sum + item.amount,
+        0
+    );
+
+    container.replaceChildren();
+
+    // Total pending salary card
+    const totalCard = document.createElement("div");
+    totalCard.className = "previous-pending-total";
+
+    const totalLabel = document.createElement("span");
+    totalLabel.textContent = "Total Pending Salary";
+
+    const totalAmount = document.createElement("strong");
+    totalAmount.textContent = formatCurrency(totalPending);
+
+    totalCard.append(totalLabel, totalAmount);
+    container.appendChild(totalCard);
+
+    // Empty message
+    if (pendingItems.length === 0) {
+
+        const empty = document.createElement("p");
+
+        empty.className = "analytics-empty";
+        empty.textContent =
+            `No pending salary for ${monthName}.`;
+
+        container.appendChild(empty);
+
+        return;
+    }
+
+    // Pending salary list
+    const list = document.createElement("div");
+    list.className = "previous-pending-list";
+
+    pendingItems.forEach((item) => {
+
+        const row = document.createElement("div");
+        row.className = "previous-pending-row";
+
+        const details = document.createElement("div");
+        details.className = "previous-pending-details";
+
+        const title = document.createElement("strong");
+        title.textContent = item.note || "Daily Salary";
+
+        const date = document.createElement("span");
+        date.textContent = formatDate(item.date);
+
+        details.append(title, date);
+
+        const right = document.createElement("div");
+        right.className = "previous-pending-right";
+
+        const amount = document.createElement("strong");
+        amount.className = "previous-pending-amount";
+        amount.textContent = formatCurrency(item.amount);
+
+        const button = document.createElement("button");
+
+        button.type = "button";
+        button.className =
+            "neon-modal-btn neon-btn-success previous-received-btn";
+
+        button.textContent = "✓ Received";
+
+        button.addEventListener("click", () => {
+            markIncomeReceived(item.id);
+        });
+
+        right.append(amount, button);
+
+        row.append(details, right);
+
+        list.appendChild(row);
+    });
+
+    container.appendChild(list);
+}
+
+// ========================================
 // RENDER RECENT TRANSACTIONS
 // ========================================
 
@@ -976,8 +1115,11 @@ function updateDashboard() {
 
     renderTransactions();
 
-    // IMPORTANT: Update both analytics sections
+    // Update dashboard sections
     updateMonthlySections();
+
+    // Update previous month pending salary
+    updatePreviousMonthPendingSalary();
 }
 
 // ========================================
