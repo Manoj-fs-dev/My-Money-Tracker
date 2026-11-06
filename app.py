@@ -1,4 +1,3 @@
-
 from flask import Flask, jsonify, request, send_from_directory
 import mysql.connector
 import os
@@ -26,11 +25,11 @@ logging.basicConfig(level=logging.INFO)
 # MYSQL CONFIGURATION
 # ========================================
 
-DB_HOST = "my-money-db-my-money-tracker.c.aivencloud.com" 
-DB_PORT =  14373
-DB_USER = "avnadmin" 
-DB_PASSWORD = "AVNS_oMULUZZottkz5WtkBM1" 
-DB_NAME = "defaultdb"
+DB_HOST = "localhost" 
+DB_PORT = 3306 
+DB_USER = "root" 
+DB_PASSWORD = "MANOJARUNA@2005" 
+DB_NAME = "money_tracker"
 
 # ========================================
 # MYSQL CONNECTION
@@ -650,6 +649,68 @@ def save_budget():
             connection.rollback()
 
         return db_error("Saving monthly budget", error)
+
+    finally:
+        close_db(connection, cursor)
+
+
+
+# ========================================
+# LEAVE MANAGEMENT - SAVE
+# ========================================
+
+@app.route("/api/leaves", methods=["POST"])
+def add_leave():
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    leave_date = data.get("leave_date")
+    leave_type = data.get("leave_type")
+    leave_reason = data.get("leave_reason")
+
+    if not leave_date or not leave_type:
+        return jsonify({
+            "error": "Date and leave type are required"
+        }), 400
+
+    try:
+        parsed_date = date.fromisoformat(leave_date)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid leave date"}), 400
+
+    if leave_type not in (
+        "Personal", "Sick", "Festival", "Emergency", "Other"
+    ):
+        return jsonify({"error": "Invalid leave type"}), 400
+
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            INSERT INTO leave_management
+            (leave_date, leave_type, leave_reason)
+            VALUES (%s, %s, %s)
+        """, (parsed_date, leave_type, leave_reason))
+
+        connection.commit()
+
+        return jsonify({
+            "message": "Leave saved successfully",
+            "id": cursor.lastrowid
+        }), 201
+
+    except Exception as error:
+        if connection and connection.is_connected():
+            connection.rollback()
+
+        return db_error("Saving leave", error)
 
     finally:
         close_db(connection, cursor)
