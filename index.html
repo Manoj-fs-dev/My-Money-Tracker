@@ -244,6 +244,12 @@
                             <span>AI Assistant</span>
                         </a>
 
+
+                        <a href="#leave-management" class="nav-link">
+                            <i class="bi bi-calendar2-check-fill"></i>
+                            <span>Leave Management</span>
+                        </a>
+
                     </div>
 
                 </article>
@@ -511,19 +517,93 @@
 
 
 
-            <!-- FOOTER -->
-            <footer class="footer">
-                <p>
-                    My Money Tracker &copy; 2026 |
-                    Plan Smart, Spend Wise, Save More!
-                </p>
-            </footer>
 
-        </main>
+            <!-- LEAVE MANAGEMENT SECTION -->
+            <section class="panel form-panel" id="leave-management">
+
+                <div class="panel-heading">
+                    <h3>
+                        <i class="bi bi-calendar2-check-fill"></i>
+                        Leave Management
+                    </h3>
+                </div>
+
+                <form id="leave-form" class="row g-3">
+
+                    <div class="col-md-4">
+                        <label for="leave-date" class="form-label">
+                            Leave Date
+                        </label>
+                        <input type="date" class="form-control" id="leave-date" required>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label for="leave-type" class="form-label">
+                            Leave Type
+                        </label>
+                        <select id="leave-type" class="form-select" required>
+                            <option value="">Choose Leave Type</option>
+                            <option value="Personal">Personal Leave</option>
+                            <option value="Sick">Sick Leave</option>
+                            <option value="Festival">Festival Leave</option>
+                            <option value="Emergency">Emergency Leave</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label for="leave-reason" class="form-label">
+                            Leave Reason
+                        </label>
+                        <input type="text" id="leave-reason" class="form-control" maxlength="255"
+                            placeholder="Enter reason">
+                    </div>
+
+                    <div class="col-12">
+                        <button type="submit" class="submit-button">
+                            <i class="bi bi-calendar-check"></i>
+                            Save Leave
+                        </button>
+                    </div>
+                </form>
 
     </div>
 
+    </section>
 
+    <!-- FOOTER -->
+    <footer class="footer">
+        <p>
+            My Money Tracker &copy; 2026 |
+            Plan Smart, Spend Wise, Save More!
+        </p>
+    </footer>
+
+    </main>
+
+    </div>
+
+<!-- CUSTOM TOAST NOTIFICATION -->
+<div id="custom-toast" class="custom-toast">
+
+    <div class="toast-icon" id="toast-icon">
+        <i class="bi bi-check-lg"></i>
+    </div>
+
+    <div class="toast-content">
+        <h4 id="toast-title">Success!</h4>
+        <p id="toast-message">Leave saved successfully!</p>
+    </div>
+
+    <button type="button" class="toast-close" onclick="hideToast()">
+        <i class="bi bi-x-lg"></i>
+    </button>
+
+    <div class="toast-progress" id="toast-progress"></div>
+
+</div>
+
+    
     <!-- Bootstrap JavaScript -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
     </script>
