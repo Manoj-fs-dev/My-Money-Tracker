@@ -1685,3 +1685,134 @@ if (document.readyState === "loading") {
 } else {
     initializeApp();
 }
+
+
+
+// ========================================
+// LEAVE MANAGEMENT
+// ========================================
+
+const leaveForm = document.getElementById("leave-form");
+
+if (leaveForm) {
+
+    leaveForm.addEventListener("submit", async function (event) {
+
+        event.preventDefault();
+
+        const leaveData = {
+            leave_date: document.getElementById("leave-date").value,
+            leave_type: document.getElementById("leave-type").value,
+            leave_reason: document.getElementById("leave-reason").value.trim()
+        };
+
+        try {
+
+            const response = await fetch("/api/leaves", {
+                method: "POST",
+
+                headers: {
+                    "Content-Type": "application/json"
+                },
+
+                body: JSON.stringify(leaveData)
+            });
+
+            const responseText = await response.text();
+
+            console.log("Server Response:", responseText);
+
+            let result;
+
+            try {
+
+                result = JSON.parse(responseText);
+
+            } catch {
+
+                throw new Error(
+                    "Server returned HTML instead of JSON. Check Flask API route."
+                );
+
+            }
+
+            if (!response.ok) {
+
+                throw new Error(
+                    result.error || "Leave saving failed"
+                );
+
+            }
+
+            // SUCCESS NOTIFICATION
+            showToast("Leave saved successfully!", "success");
+
+            leaveForm.reset();
+
+        } catch (error) {
+
+            console.error("Leave Error:", error);
+
+            // ERROR NOTIFICATION
+            showToast(error.message, "error");
+
+        }
+
+    });
+
+}
+
+
+// ========================================
+// CUSTOM TOAST NOTIFICATION
+// ========================================
+
+let toastTimeout;
+
+function showToast(message, type = "success") {
+
+    const toast = document.getElementById("custom-toast");
+    const title = document.getElementById("toast-title");
+    const messageElement = document.getElementById("toast-message");
+    const icon = document.getElementById("toast-icon");
+
+    if (!toast) return;
+
+    clearTimeout(toastTimeout);
+
+    toast.classList.remove("show", "error");
+
+    if (type === "error") {
+
+        toast.classList.add("error");
+
+        title.textContent = "Error!";
+        icon.innerHTML = '<i class="bi bi-exclamation-lg"></i>';
+
+    } else {
+
+        title.textContent = "Success!";
+        icon.innerHTML = '<i class="bi bi-check-lg"></i>';
+
+    }
+
+    messageElement.textContent = message;
+
+    void toast.offsetWidth;
+
+    toast.classList.add("show");
+
+    toastTimeout = setTimeout(() => {
+        hideToast();
+    }, 3500);
+}
+
+function hideToast() {
+
+    const toast = document.getElementById("custom-toast");
+
+    if (toast) {
+        toast.classList.remove("show");
+    }
+
+}
