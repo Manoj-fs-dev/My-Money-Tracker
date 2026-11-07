@@ -1,5 +1,9 @@
+
 from flask import Flask, jsonify, request, send_from_directory
+
 import mysql.connector
+from mysql.connector import pooling
+
 import os
 import logging
 import calendar
@@ -16,6 +20,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
 app = Flask(__name__, static_folder=None)
+
 app.config["JSON_SORT_KEYS"] = False
 
 logging.basicConfig(level=logging.INFO)
@@ -25,34 +30,81 @@ logging.basicConfig(level=logging.INFO)
 # MYSQL CONFIGURATION
 # ========================================
 
-DB_HOST = "gateway01.ap-southeast-1.prod.aws.tidbcloud.com" 
-DB_PORT = 4000
-DB_USER = "2caU9Pw3s384DhW.root" 
-DB_PASSWORD = "Z2gRsPLRuSGbP6ks" 
-DB_NAME = "money_tracker"
+DB_HOST = os.environ.get("DB_HOST")
+DB_PORT = int(os.environ.get("DB_PORT", "4000"))
+DB_USER = os.environ.get("DB_USER")
+DB_PASSWORD = os.environ.get("DB_PASSWORD")
+DB_NAME = os.environ.get("DB_NAME", "money_tracker")
+
 
 # ========================================
-# MYSQL CONNECTION
+# DATABASE CONNECTION POOL
 # ========================================
+
+db_pool = None
+
+
+def get_db_pool():
+
+    global db_pool
+
+    if db_pool is None:
+
+        if not all([DB_HOST, DB_USER, DB_PASSWORD, DB_NAME]):
+
+            raise RuntimeError(
+                "Database environment variables are missing"
+            )
+
+        db_pool = pooling.MySQLConnectionPool(
+
+            pool_name="money_tracker_pool",
+
+            pool_size=5,
+
+            pool_reset_session=True,
+
+            host=DB_HOST,
+
+            port=DB_PORT,
+
+            user=DB_USER,
+
+            password=DB_PASSWORD,
+
+            database=DB_NAME,
+
+            connection_timeout=10
+
+        )
+
+        app.logger.info("Database connection pool initialized")
+
+    return db_pool
+
 
 def get_db_connection():
-    return mysql.connector.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME,
-        connection_timeout=10
-    )
+
+    return get_db_pool().get_connection()
 
 
 def close_db(connection=None, cursor=None):
 
     if cursor is not None:
-        cursor.close()
 
-    if connection is not None and connection.is_connected():
-        connection.close()
+        try:
+            cursor.close()
+
+        except Exception:
+            app.logger.warning("Cursor close failed")
+
+    if connection is not None:
+
+        try:
+            connection.close()
+
+        except Exception:
+            app.logger.warning("Connection return to pool failed")
 
 
 def db_error(operation, error):
@@ -60,81 +112,126 @@ def db_error(operation, error):
     app.logger.exception("%s failed", operation)
 
     return jsonify({
-        "error": "Database operation failed",
-        "details": str(error)
+
+        "error": "Database operation failed"
+
     }), 500
 
 
 # ========================================
-# AUTOMATIC END OF THE MONTH
+# MONTH END RECORD OPTIMIZATION
 # ========================================
 
+_last_month_end_check = None
+
+
 def ensure_month_end_records(connection):
+
+    global _last_month_end_check
+
+    today = date.today()
+
+    current_month_key = (today.year, today.month)
+
+    # Avoid checking completed months on every request
+    if _last_month_end_check == current_month_key:
+
+        return
 
     cursor = connection.cursor()
 
     try:
 
-        today = date.today()
-
         current_month_start = today.replace(day=1)
 
-        # Find all completed months
         cursor.execute("""
+
             SELECT DISTINCT
+
                 YEAR(transaction_date),
+
                 MONTH(transaction_date)
+
             FROM transactions
+
             WHERE type IN ('income', 'expense')
+
               AND transaction_date < %s
+
             ORDER BY
+
                 YEAR(transaction_date),
+
                 MONTH(transaction_date)
+
         """, (current_month_start,))
 
         completed_months = cursor.fetchall()
 
         for year, month in completed_months:
 
-            # Calculate last date of the month
             last_day = calendar.monthrange(year, month)[1]
 
             month_end_date = date(year, month, last_day)
 
             month_key = f"{year}-{month:02d}"
 
-            # Insert only once for each month
             cursor.execute("""
+
                 INSERT IGNORE INTO transactions (
+
                     type,
+
                     amount,
+
                     category,
+
                     note,
+
                     transaction_date,
+
                     status,
+
                     month_end_month
+
                 )
+
                 VALUES (
+
                     'month_end',
+
                     0.00,
+
                     NULL,
+
                     'END OF THE MONTH',
+
                     %s,
+
                     'received',
+
                     %s
+
                 )
+
             """, (
+
                 month_end_date,
+
                 month_key
+
             ))
 
         connection.commit()
 
-        app.logger.info("Month-end records checked successfully")
+        _last_month_end_check = current_month_key
+
+        app.logger.info("Month-end records checked")
 
     except Exception:
 
         connection.rollback()
+
         raise
 
     finally:
@@ -156,35 +253,36 @@ def home():
 def frontend_files(filename):
 
     allowed = {
+
         ".html", ".css", ".js", ".png", ".jpg",
+
         ".jpeg", ".webp", ".svg", ".ico",
+
         ".woff", ".woff2", ".ttf"
+
     }
 
     requested = Path(filename)
 
     if (
+
         requested.suffix.lower() not in allowed
+
         or ".." in requested.parts
+
     ):
 
-        return jsonify({
-            "error": "File not found"
-        }), 404
+        return jsonify({"error": "File not found"}), 404
 
     file_path = (BASE_DIR / requested).resolve()
 
     if not file_path.is_relative_to(BASE_DIR):
 
-        return jsonify({
-            "error": "File not found"
-        }), 404
+        return jsonify({"error": "File not found"}), 404
 
     if not file_path.is_file():
 
-        return jsonify({
-            "error": "File not found"
-        }), 404
+        return jsonify({"error": "File not found"}), 404
 
     return send_from_directory(BASE_DIR, filename)
 
@@ -210,9 +308,13 @@ def health():
         database_name = cursor.fetchone()[0]
 
         return jsonify({
+
             "message": "My Money Tracker API is running",
+
             "database": "connected",
+
             "database_name": database_name
+
         }), 200
 
     except Exception as error:
@@ -220,9 +322,11 @@ def health():
         app.logger.exception("Health check failed")
 
         return jsonify({
+
             "message": "Backend is running",
-            "database": "disconnected",
-            "details": str(error)
+
+            "database": "disconnected"
+
         }), 503
 
     finally:
@@ -244,27 +348,40 @@ def get_transactions():
 
         connection = get_db_connection()
 
-        # Automatically close completed months
         ensure_month_end_records(connection)
 
         cursor = connection.cursor(dictionary=True)
 
         cursor.execute("""
+
             SELECT
+
                 id,
+
                 type,
+
                 amount,
+
                 category,
+
                 note,
+
                 transaction_date,
+
                 status,
+
                 created_at
+
             FROM transactions
 
             ORDER BY
+
                 transaction_date DESC,
+
                 (type = 'month_end') ASC,
+
                 id DESC
+
         """)
 
         rows = cursor.fetchall()
@@ -272,6 +389,7 @@ def get_transactions():
         for item in rows:
 
             if item["amount"] is not None:
+
                 item["amount"] = float(item["amount"])
 
             if item["transaction_date"] is not None:
@@ -283,6 +401,7 @@ def get_transactions():
             else:
 
                 item["date"] = None
+
                 item.pop("transaction_date", None)
 
             if item.get("created_at") is not None:
@@ -314,7 +433,9 @@ def add_transaction():
     if not isinstance(data, dict):
 
         return jsonify({
+
             "error": "A valid JSON object is required"
+
         }), 400
 
     transaction_type = data.get("type")
@@ -335,60 +456,70 @@ def add_transaction():
     if transaction_type not in ("income", "expense"):
 
         return jsonify({
+
             "error": "Type must be income or expense"
+
         }), 400
 
     try:
 
         if isinstance(amount_value, bool) or amount_value is None:
+
             raise InvalidOperation
 
         amount = Decimal(str(amount_value))
 
         if (
+
             not amount.is_finite()
+
             or amount <= 0
+
             or amount >= Decimal("100000000")
+
         ):
+
             raise InvalidOperation
 
         amount = amount.quantize(Decimal("0.01"))
 
     except (InvalidOperation, ValueError, TypeError):
 
-        return jsonify({
-            "error": "Invalid amount"
-        }), 400
+        return jsonify({"error": "Invalid amount"}), 400
 
     try:
 
         if not isinstance(transaction_date, str):
+
             raise ValueError
 
         parsed_date = date.fromisoformat(transaction_date)
 
         if parsed_date.isoformat() != transaction_date:
+
             raise ValueError
 
         if parsed_date > date.today():
 
             return jsonify({
+
                 "error": "Future dates are not allowed"
+
             }), 400
 
     except (ValueError, TypeError):
 
         return jsonify({
+
             "error": "Date must be YYYY-MM-DD"
+
         }), 400
 
     if category is not None:
 
         if not isinstance(category, str) or len(category) > 100:
 
-            return jsonify({
-                "error": "Invalid category"
-            }), 400
+            return jsonify({"error": "Invalid category"}), 400
 
         category = category.strip() or None
 
@@ -396,9 +527,7 @@ def add_transaction():
 
         if not isinstance(note, str) or len(note) > 255:
 
-            return jsonify({
-                "error": "Invalid note"
-            }), 400
+            return jsonify({"error": "Invalid note"}), 400
 
         note = note.strip() or None
 
@@ -407,7 +536,9 @@ def add_transaction():
         if status not in ("received", "pending"):
 
             return jsonify({
+
                 "error": "Income status must be received or pending"
+
             }), 400
 
         category = category or "Salary"
@@ -428,22 +559,39 @@ def add_transaction():
         cursor = connection.cursor()
 
         cursor.execute("""
+
             INSERT INTO transactions (
+
                 type,
+
                 amount,
+
                 category,
+
                 note,
+
                 transaction_date,
+
                 status
+
             )
+
             VALUES (%s, %s, %s, %s, %s, %s)
+
         """, (
+
             transaction_type,
+
             amount,
+
             category,
+
             note,
+
             parsed_date,
+
             status
+
         ))
 
         connection.commit()
@@ -472,7 +620,8 @@ def add_transaction():
 
     except Exception as error:
 
-        if connection is not None and connection.is_connected():
+        if connection is not None:
+
             connection.rollback()
 
         return db_error("Saving transaction", error)
@@ -502,13 +651,17 @@ def mark_income_received(transaction_id):
         cursor = connection.cursor()
 
         cursor.execute("""
+
             UPDATE transactions
 
             SET status = 'received'
 
             WHERE id = %s
+
               AND type = 'income'
+
               AND status = 'pending'
+
         """, (transaction_id,))
 
         if cursor.rowcount == 0:
@@ -516,7 +669,9 @@ def mark_income_received(transaction_id):
             connection.rollback()
 
             return jsonify({
+
                 "error": "Pending income not found"
+
             }), 404
 
         connection.commit()
@@ -533,7 +688,8 @@ def mark_income_received(transaction_id):
 
     except Exception as error:
 
-        if connection is not None and connection.is_connected():
+        if connection is not None:
+
             connection.rollback()
 
         return db_error("Updating income", error)
@@ -547,7 +703,6 @@ def mark_income_received(transaction_id):
 # MONTHLY BUDGET - GET
 # ========================================
 
-
 @app.route("/api/budget", methods=["GET"])
 def get_budget():
 
@@ -555,16 +710,25 @@ def get_budget():
     cursor = None
 
     try:
+
         today = date.today()
 
         connection = get_db_connection()
+
         cursor = connection.cursor(dictionary=True)
 
         cursor.execute("""
+
             SELECT monthly_budget
+
             FROM monthly_budgets
+
             WHERE budget_year = %s
-            AND budget_month = %s
+
+              AND budget_month = %s
+
+            LIMIT 1
+
         """, (today.year, today.month))
 
         row = cursor.fetchone()
@@ -572,15 +736,21 @@ def get_budget():
         budget = float(row["monthly_budget"]) if row else 0.0
 
         return jsonify({
+
             "monthly_budget": budget,
+
             "year": today.year,
+
             "month": today.month
+
         }), 200
 
     except Exception as error:
+
         return db_error("Loading monthly budget", error)
 
     finally:
+
         close_db(connection, cursor)
 
 
@@ -588,71 +758,93 @@ def get_budget():
 # MONTHLY BUDGET - SAVE / UPDATE
 # ========================================
 
-
 @app.route("/api/budget", methods=["PUT"])
 def save_budget():
 
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
+
         return jsonify({"error": "Valid JSON is required"}), 400
 
     try:
+
         raw_budget = data.get("monthly_budget")
 
         if isinstance(raw_budget, bool) or raw_budget is None:
+
             raise InvalidOperation
 
         budget = Decimal(str(raw_budget))
 
         if (
+
             not budget.is_finite()
+
             or budget <= 0
+
             or budget >= Decimal("10000000000")
+
         ):
+
             raise InvalidOperation
 
         budget = budget.quantize(Decimal("0.01"))
 
     except (InvalidOperation, ValueError, TypeError):
+
         return jsonify({"error": "Invalid budget amount"}), 400
 
     connection = None
     cursor = None
 
     try:
+
         today = date.today()
 
         connection = get_db_connection()
+
         cursor = connection.cursor()
 
         cursor.execute("""
+
             INSERT INTO monthly_budgets
+
             (budget_year, budget_month, monthly_budget)
+
             VALUES (%s, %s, %s)
 
             ON DUPLICATE KEY UPDATE
+
             monthly_budget = VALUES(monthly_budget)
+
         """, (today.year, today.month, budget))
 
         connection.commit()
 
         return jsonify({
+
             "message": "Monthly budget saved successfully",
+
             "monthly_budget": float(budget),
+
             "year": today.year,
+
             "month": today.month
+
         }), 200
 
     except Exception as error:
-        if connection is not None and connection.is_connected():
+
+        if connection is not None:
+
             connection.rollback()
 
         return db_error("Saving monthly budget", error)
 
     finally:
-        close_db(connection, cursor)
 
+        close_db(connection, cursor)
 
 
 # ========================================
@@ -665,55 +857,90 @@ def add_leave():
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
+
         return jsonify({"error": "Invalid JSON"}), 400
 
     leave_date = data.get("leave_date")
+
     leave_type = data.get("leave_type")
+
     leave_reason = data.get("leave_reason")
 
     if not leave_date or not leave_type:
+
         return jsonify({
+
             "error": "Date and leave type are required"
+
         }), 400
 
     try:
+
         parsed_date = date.fromisoformat(leave_date)
+
     except (ValueError, TypeError):
+
         return jsonify({"error": "Invalid leave date"}), 400
 
     if leave_type not in (
+
         "Personal", "Sick", "Festival", "Emergency", "Other"
+
     ):
+
         return jsonify({"error": "Invalid leave type"}), 400
+
+    if leave_reason is not None:
+
+        if not isinstance(leave_reason, str) or len(leave_reason) > 255:
+
+            return jsonify({"error": "Invalid leave reason"}), 400
+
+        leave_reason = leave_reason.strip() or None
 
     connection = None
     cursor = None
 
     try:
+
         connection = get_db_connection()
+
         cursor = connection.cursor()
 
         cursor.execute("""
+
             INSERT INTO leave_management
+
             (leave_date, leave_type, leave_reason)
+
             VALUES (%s, %s, %s)
+
         """, (parsed_date, leave_type, leave_reason))
 
         connection.commit()
 
+        new_id = cursor.lastrowid
+
         return jsonify({
+
             "message": "Leave saved successfully",
-            "id": cursor.lastrowid
+
+            "id": new_id
+
         }), 201
 
     except Exception as error:
-        if connection and connection.is_connected():
+
+        if connection is not None:
+
             connection.rollback()
 
         return db_error("Saving leave", error)
 
     finally:
+
         close_db(connection, cursor)
+
 
 # ========================================
 # START SERVER
@@ -721,6 +948,4 @@ def add_leave():
 
 if __name__ == "__main__":
 
-    app.run(
-        debug=True
-    )
+    app.run(debug=False)
