@@ -837,10 +837,16 @@ button {
 }
 
 /* Recent Transactions - Full Height */
+.transactions-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
 .transactions-panel .table-responsive {
     flex: 1;
-    min-height: 350px;
-    max-height: 100%;
+    min-height: 0;
+    max-height: 350px;
     overflow-y: auto;
     overflow-x: auto;
 }
