@@ -704,9 +704,12 @@ button {
     grid-area: status;
 }
 
+
 .transactions-panel {
     grid-area: transactions;
+    align-self: start;
 }
+
 
 .ai-panel {
     grid-area: ai;
