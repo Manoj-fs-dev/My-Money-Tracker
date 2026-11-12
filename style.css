@@ -827,6 +827,38 @@ button {
     line-height: 2;
 }
 
+/* Recent Transactions Scrollbar */
+.transactions-panel .table-responsive {
+    max-height: 350px;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
+/* Scrollbar Design */
+.transactions-panel .table-responsive::-webkit-scrollbar {
+    width: 6px;
+}
+
+.transactions-panel .table-responsive::-webkit-scrollbar-thumb {
+    background: #3b4963;
+    border-radius: 10px;
+}
+
+.transactions-panel .table-responsive::-webkit-scrollbar-thumb:hover {
+    background: #4f8cff;
+}
+
+.transactions-panel .table-responsive::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* Keep Table Heading Visible */
+.transactions-panel .transaction-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
 
 /* ========================================
    16. AI ASSISTANT
