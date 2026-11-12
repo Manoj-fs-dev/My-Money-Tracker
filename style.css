@@ -836,17 +836,12 @@ button {
     line-height: 2;
 }
 
-/* Recent Transactions - Full Height */
-.transactions-panel {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-}
 
+/* Recent Transactions - Full Height */
 .transactions-panel .table-responsive {
     flex: 1;
-    min-height: 0;
-    max-height: 350px;
+    min-height: 350px;
+    max-height: 100%;
     overflow-y: auto;
     overflow-x: auto;
 }
