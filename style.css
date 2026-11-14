@@ -726,6 +726,11 @@ button {
 
 .status-content {
     text-align: center;
+
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
 }
 
 .status-icon {
@@ -764,6 +769,8 @@ button {
     gap: 12px;
 
     text-align: left;
+
+    flex: 1;
 }
 
 .status-details > div {
