@@ -216,6 +216,19 @@ async function receiveTransaction(id) {
     });
 }
 
+async function updateIncomeTransaction(id, transaction) {
+    return apiRequest(`/transactions/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+            amount: transaction.amount,
+            category: transaction.category,
+            note: transaction.note,
+            date: transaction.date,
+            status: transaction.status
+        })
+    });
+}
+
 // ========================================
 // MONTHLY BUDGET - DATABASE
 // ========================================
@@ -685,7 +698,7 @@ function updateExpenseBreakdown() {
         return;
     }
 
-    const month = getCurrentMonth();
+        const month = getCurrentMonth();
 
     const expenses = transactions.filter(
         (item) =>
@@ -970,32 +983,33 @@ function renderTransactions() {
 
         if (isIncome) {
             const received = item.status === "received";
+            const actions = document.createElement("div");
+            actions.style.cssText = "display:flex;align-items:center;gap:7px;flex-wrap:wrap;";
+
             const button = document.createElement("button");
-
             button.type = "button";
-
             button.className = received
                 ? "neon-modal-btn neon-btn-success"
                 : "neon-modal-btn neon-btn-warning";
-
-            button.style.cssText =
-                "min-height:32px;padding:7px 10px;white-space:nowrap;";
-
-            button.textContent = received
-                ? "✓ Received"
-                : "☐ Mark Received";
-
+            button.style.cssText = "min-height:32px;padding:7px 10px;white-space:nowrap;";
+            button.textContent = received ? "✓ Received" : "☐ Mark Received";
             button.disabled = received;
 
             if (received) {
                 button.title = "Income already received";
             } else {
-                button.addEventListener("click", () => {
-                    markIncomeReceived(item.id);
-                });
+                button.addEventListener("click", () => markIncomeReceived(item.id));
             }
 
-            statusCell.appendChild(button);
+            const editButton = document.createElement("button");
+            editButton.type = "button";
+            editButton.className = "neon-modal-btn";
+            editButton.textContent = "✏ Edit";
+            editButton.style.cssText = "min-height:32px;padding:7px 10px;white-space:nowrap;background:rgba(59,130,246,.14);color:#60a5fa;border:1px solid rgba(96,165,250,.35);";
+            editButton.addEventListener("click", () => openEditIncomeModal(item));
+
+            actions.append(button, editButton);
+            statusCell.appendChild(actions);
 
         } else {
             const badge = document.createElement("span");
@@ -1363,6 +1377,223 @@ async function markIncomeReceived(id) {
             "Database Error"
         );
     }
+}
+
+// ========================================
+// EDIT INCOME
+// ========================================
+
+function openEditIncomeModal(item) {
+    if (!item || item.type !== "income") return;
+
+    // Prevent opening more than one modal.
+    if (document.querySelector(".edit-income-overlay")) return;
+
+    const overlay = document.createElement("div");
+    overlay.className = "budget-modal-overlay edit-income-overlay";
+
+    const modal = document.createElement("section");
+    modal.className = "budget-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-labelledby", "edit-income-heading");
+
+        const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "budget-modal-close";
+    closeButton.textContent = "×";
+    closeButton.setAttribute("aria-label", "Close edit income popup");
+
+    const heading = document.createElement("h2");
+    heading.id = "edit-income-heading";
+    heading.textContent = "Edit Income";
+
+    const description = document.createElement("p");
+    description.className = "budget-modal-description";
+    description.textContent = "Update the details of this income transaction.";
+
+    const form = document.createElement("form");
+
+    function addField(labelText, name, type, value) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "edit-income-field";
+        wrapper.style.marginBottom = "14px";
+
+        const label = document.createElement("label");
+        label.className = "budget-input-label";
+        label.textContent = labelText;
+        label.htmlFor = `edit-income-${name}`;
+
+        const input = document.createElement("input");
+        input.className = "budget-input";
+        input.id = `edit-income-${name}`;
+        input.name = name;
+        input.type = type;
+        input.value = value == null ? "" : String(value);
+        input.required = name === "date" || name === "amount" || name === "category";
+        input.style.width = "100%";
+        input.style.boxSizing = "border-box";
+
+        if (type === "number") {
+            input.min = "0.01";
+            input.max = "99999999.99";
+            input.step = "0.01";
+        }
+        if (type === "date") {
+            input.max = getTodayDate();
+        }
+        if (type === "text" && name === "category") {
+            input.maxLength = 100;
+        }
+        if (type === "text" && name === "note") {
+            input.maxLength = 255;
+        }
+
+        wrapper.append(label, input);
+        form.appendChild(wrapper);
+        return input;
+    }
+
+    const dateInput = addField("Income Date", "date", "date", item.date);
+    const amountInput = addField("Amount (₹)", "amount", "number", item.amount);
+    const categoryInput = addField("Category", "category", "text", item.category || "Salary");
+    const noteInput = addField("Note / Description", "note", "text", item.note || "");
+
+    const statusWrapper = document.createElement("div");
+    statusWrapper.style.marginBottom = "14px";
+
+    const statusLabel = document.createElement("label");
+    statusLabel.className = "budget-input-label";
+    statusLabel.htmlFor = "edit-income-status";
+    statusLabel.textContent = "Payment Status";
+
+    const statusInput = document.createElement("select");
+    statusInput.className = "budget-input";
+    statusInput.id = "edit-income-status";
+    statusInput.style.width = "100%";
+    statusInput.style.boxSizing = "border-box";
+
+    [
+        { value: "received", label: "✓ Received" },
+        { value: "pending", label: "Pending" }
+    ].forEach((entry) => {
+        const option = document.createElement("option");
+        option.value = entry.value;
+        option.textContent = entry.label;
+        statusInput.appendChild(option);
+    });
+    statusInput.value = item.status === "pending" ? "pending" : "received";
+    statusWrapper.append(statusLabel, statusInput);
+    form.appendChild(statusWrapper);
+
+    const errorElement = document.createElement("p");
+    errorElement.className = "budget-modal-error";
+    errorElement.setAttribute("role", "alert");
+    errorElement.hidden = true;
+
+    const actions = document.createElement("div");
+    actions.className = "budget-modal-actions";
+
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "budget-modal-btn budget-cancel-btn";
+    cancelButton.textContent = "Cancel";
+
+    const saveButton = document.createElement("button");
+    saveButton.type = "submit";
+    saveButton.className = "budget-modal-btn budget-save-btn";
+    saveButton.textContent = "Save Changes";
+
+    actions.append(cancelButton, saveButton);
+    form.append(errorElement, actions);
+    modal.append(closeButton, heading, description, form);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    function closeModal() {
+        document.removeEventListener("keydown", handleKeydown);
+        overlay.remove();
+    }
+
+    function handleKeydown(event) {
+        if (event.key === "Escape") closeModal();
+    }
+
+    closeButton.addEventListener("click", closeModal);
+    cancelButton.addEventListener("click", closeModal);
+    overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) closeModal();
+    });
+    document.addEventListener("keydown", handleKeydown);
+
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const date = dateInput.value;
+        const amount = Number(amountInput.value);
+        const category = categoryInput.value.trim();
+        const note = noteInput.value.trim();
+        const status = statusInput.value;
+
+        if (!date || date > getTodayDate()) {
+            errorElement.textContent = "Choose a valid date that is not in the future.";
+            errorElement.hidden = false;
+            dateInput.focus();
+            return;
+        }
+        if (!Number.isFinite(amount) || amount <= 0 || amount >= 100000000) {
+            errorElement.textContent = "Enter a valid amount greater than zero.";
+            errorElement.hidden = false;
+            amountInput.focus();
+            return;
+        }
+        if (!category || category.length > 100) {
+            errorElement.textContent = "Enter a category (maximum 100 characters).";
+            errorElement.hidden = false;
+            categoryInput.focus();
+            return;
+        }
+        if (note.length > 255) {
+            errorElement.textContent = "Note must be 255 characters or fewer.";
+            errorElement.hidden = false;
+            noteInput.focus();
+            return;
+        }
+
+        saveButton.disabled = true;
+        cancelButton.disabled = true;
+        saveButton.textContent = "Saving...";
+        errorElement.hidden = true;
+
+        try {
+            await updateIncomeTransaction(item.id, {
+                date,
+                amount,
+                category,
+                note,
+                status
+            });
+
+            const loaded = await loadTransactions();
+            if (!loaded) {
+                throw new Error("Income updated, but the dashboard could not refresh. Reload the page.");
+            }
+
+            closeModal();
+            showToast("Income updated successfully!", "success", "Income Updated!");
+
+        } catch (error) {
+            console.error("Editing income failed:", error);
+            errorElement.textContent = error.message || "Could not update income.";
+            errorElement.hidden = false;
+        } finally {
+            saveButton.disabled = false;
+            cancelButton.disabled = false;
+            saveButton.textContent = "Save Changes";
+        }
+    });
+
+    dateInput.focus();
 }
 
 // ========================================
