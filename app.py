@@ -699,6 +699,146 @@ def mark_income_received(transaction_id):
         close_db(connection, cursor)
 
 
+
+
+# ========================================
+# EDIT INCOME
+# ========================================
+
+@app.route("/api/transactions/<int:transaction_id>", methods=["PUT"])
+def edit_income(transaction_id):
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "Valid JSON is required"}), 400
+
+    amount_value = data.get("amount")
+    transaction_date = data.get("date", data.get("transaction_date"))
+    category = data.get("category")
+    note = data.get("note")
+    status = data.get("status")
+
+    # Validate amount
+    try:
+        if isinstance(amount_value, bool) or amount_value is None:
+            raise InvalidOperation
+
+        amount = Decimal(str(amount_value))
+
+        if (
+            not amount.is_finite()
+            or amount <= 0
+            or amount >= Decimal("100000000")
+        ):
+            raise InvalidOperation
+
+        amount = amount.quantize(Decimal("0.01"))
+
+    except (InvalidOperation, ValueError, TypeError):
+        return jsonify({"error": "Invalid amount"}), 400
+
+    # Validate date
+    try:
+        if not isinstance(transaction_date, str):
+            raise ValueError
+
+        parsed_date = date.fromisoformat(transaction_date)
+
+        if parsed_date.isoformat() != transaction_date:
+            raise ValueError
+
+        if parsed_date > date.today():
+            return jsonify({"error": "Future dates are not allowed"}), 400
+
+    except (ValueError, TypeError):
+        return jsonify({"error": "Date must be YYYY-MM-DD"}), 400
+
+    # Validate category
+    if category is not None:
+        if not isinstance(category, str) or len(category) > 100:
+            return jsonify({"error": "Invalid category"}), 400
+
+        category = category.strip() or "Salary"
+    else:
+        category = "Salary"
+
+    # Validate note
+    if note is not None:
+        if not isinstance(note, str) or len(note) > 255:
+            return jsonify({"error": "Invalid note"}), 400
+
+        note = note.strip() or None
+
+    # Validate status
+    if status not in ("received", "pending"):
+        return jsonify({"error": "Invalid income status"}), 400
+
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            UPDATE transactions
+            SET
+                amount = %s,
+                category = %s,
+                note = %s,
+                transaction_date = %s,
+                status = %s
+            WHERE id = %s
+              AND type = 'income'
+        """, (
+            amount,
+            category,
+            note,
+            parsed_date,
+            status,
+            transaction_id
+        ))
+
+        if cursor.rowcount == 0:
+            connection.rollback()
+
+            # Check whether the income exists
+            cursor.execute("""
+                SELECT id
+                FROM transactions
+                WHERE id = %s AND type = 'income'
+            """, (transaction_id,))
+
+            if cursor.fetchone() is None:
+                return jsonify({"error": "Income not found"}), 404
+
+        connection.commit()
+
+        return jsonify({
+            "message": "Income updated successfully",
+            "id": transaction_id,
+            "amount": float(amount),
+            "category": category,
+            "note": note,
+            "date": parsed_date.isoformat(),
+            "status": status
+        }), 200
+
+    except Exception as error:
+        if connection is not None:
+            connection.rollback()
+
+        return db_error("Editing income", error)
+
+    finally:
+        close_db(connection, cursor)
+
+
+
+
+
+
 # ========================================
 # MONTHLY BUDGET - GET
 # ========================================
