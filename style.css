@@ -720,13 +720,24 @@ button {
 }
 
 
+
 /* ========================================
    14. TODAY'S STATUS
 ======================================== */
 
+.status-panel {
+    grid-area: status;
+    align-self: stretch !important;
+    height: 100%;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
 .status-content {
     text-align: center;
 
+    flex: 1;
     height: 100%;
 
     display: flex;
@@ -740,6 +751,7 @@ button {
 
     width: 55px;
     height: 55px;
+    flex-shrink: 0;
 
     margin: 0 auto 15px;
 
@@ -779,7 +791,7 @@ button {
     align-items: center;
     gap: 10px;
 
-    padding: 12px;
+    padding: 14px 12px;
 
     background: #192338;
     border-radius: 10px;
@@ -793,6 +805,19 @@ button {
 .status-details strong {
     font-size: 13px;
     color: var(--green);
+}
+
+
+/* ========================================
+   BOTTOM GRID - HEIGHT ADJUSTMENT
+======================================== */
+
+.bottom-grid {
+    align-items: stretch;
+}
+
+.status-panel {
+    align-self: stretch !important;
 }
 
 
