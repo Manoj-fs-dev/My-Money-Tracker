@@ -1082,6 +1082,54 @@ def add_leave():
         close_db(connection, cursor)
 
 
+
+# ========================================
+# LEAVE MANAGEMENT - GET ALL
+# ========================================
+
+@app.route("/api/leaves", methods=["GET"])
+def get_leaves():
+
+    connection = None
+    cursor = None
+
+    try:
+
+        connection = get_db_connection()
+
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT
+                id,
+                leave_date,
+                leave_type,
+                leave_reason,
+                created_at
+            FROM leave_management
+            ORDER BY leave_date DESC, id DESC
+        """)
+
+        rows = cursor.fetchall()
+
+        for item in rows:
+
+            if item["leave_date"] is not None:
+                item["leave_date"] = item["leave_date"].isoformat()
+
+            if item["created_at"] is not None:
+                item["created_at"] = item["created_at"].isoformat()
+
+        return jsonify(rows), 200
+
+    except Exception as error:
+
+        return db_error("Fetching leave records", error)
+
+    finally:
+
+        close_db(connection, cursor)
+
 # ========================================
 # START SERVER
 # ========================================
