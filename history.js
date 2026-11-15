@@ -6,6 +6,7 @@ const viewButton = document.getElementById("view-history");
 const tableBody = document.getElementById("history-table-body");
 
 let allTransactions = [];
+let allLeaves = [];
 let monthlyBudget = 0;
 
 const $ = (id) => document.getElementById(id);
@@ -68,16 +69,25 @@ function escapeHTML(value) {
 // ========================================
 
 async function loadHistoryData() {
+
     try {
+
         showMessage("Loading your financial records...");
 
         const [
             transactionResponse,
-            budgetResponse
+            budgetResponse,
+            leaveResponse
         ] = await Promise.all([
+
             fetch(`${API_BASE}/transactions`),
-            fetch(`${API_BASE}/budget`)
+
+            fetch(`${API_BASE}/budget`),
+
+            fetch(`${API_BASE}/leaves`)
+
         ]);
+
 
         if (!transactionResponse.ok) {
             throw new Error("Could not load transactions.");
@@ -87,30 +97,69 @@ async function loadHistoryData() {
             throw new Error("Could not load monthly budget.");
         }
 
+        if (!leaveResponse.ok) {
+            throw new Error("Could not load leave records.");
+        }
+
+
         const transactionData =
             await transactionResponse.json();
 
         const budgetData =
             await budgetResponse.json();
 
+        const leaveData =
+            await leaveResponse.json();
+
+
         if (!Array.isArray(transactionData)) {
             throw new Error("Invalid transaction data.");
         }
 
+        if (!Array.isArray(leaveData)) {
+            throw new Error("Invalid leave data.");
+        }
+
+
+        // Transactions
+
         allTransactions = transactionData.map(item => ({
+
             ...item,
+
             amount: Number(item.amount),
+
             date: String(
                 item.date || item.transaction_date || ""
             ).slice(0, 10)
+
         }));
+
+
+        // Leave records
+
+        allLeaves = leaveData.map(item => ({
+
+            ...item,
+
+            date: String(
+                item.leave_date || ""
+            ).slice(0, 10)
+
+        }));
+
+
+        // Monthly budget
 
         monthlyBudget =
             Number(budgetData.monthly_budget) || 0;
 
+
         renderHistory();
 
+
     } catch (error) {
+
         console.error("History loading error:", error);
 
         tableBody.innerHTML = `
@@ -122,7 +171,9 @@ async function loadHistoryData() {
         `;
 
         showMessage(error.message);
+
     }
+
 }
 
 
@@ -135,9 +186,11 @@ function renderPendingSalary(monthTransactions) {
     let container = $("pending-salary-history");
 
     if (!container) {
+
         container = document.createElement("div");
 
         container.id = "pending-salary-history";
+
         container.className = "pending-salary-section";
 
         const table = tableBody.closest("table");
@@ -145,30 +198,45 @@ function renderPendingSalary(monthTransactions) {
         if (table) {
             table.parentElement.before(container);
         }
+
     }
+
 
     container.replaceChildren();
 
+
     const pendingItems = monthTransactions.filter(item =>
+
         item.type === "income" &&
         item.status === "pending"
+
     );
 
+
     if (pendingItems.length === 0) {
+
         container.hidden = true;
+
         return;
+
     }
+
 
     container.hidden = false;
 
+
     const heading = document.createElement("h3");
+
     heading.textContent = "Pending Salary Details";
 
     heading.className = "pending-salary-heading";
 
+
     const pendingTable = document.createElement("table");
 
-    pendingTable.className = "table pending-salary-table";
+    pendingTable.className =
+        "table pending-salary-table";
+
 
     pendingTable.innerHTML = `
         <thead>
@@ -181,37 +249,52 @@ function renderPendingSalary(monthTransactions) {
         </thead>
     `;
 
+
     const tbody = document.createElement("tbody");
+
 
     pendingItems.sort((a, b) =>
         a.date.localeCompare(b.date)
     );
+
 
     pendingItems.forEach((item, index) => {
 
         const row = document.createElement("tr");
 
         const values = [
+
             index + 1,
+
             formatDate(item.date),
+
             item.note || item.category || "Salary",
+
             formatCurrency(item.amount)
+
         ];
 
+
         values.forEach(value => {
+
             const cell = document.createElement("td");
 
             cell.textContent = value;
 
             row.appendChild(cell);
+
         });
 
+
         tbody.appendChild(row);
+
     });
+
 
     pendingTable.appendChild(tbody);
 
     container.append(heading, pendingTable);
+
 }
 
 
@@ -223,64 +306,169 @@ function renderHistory() {
 
     const selectedMonth = monthInput.value;
 
+
     if (!selectedMonth) {
+
         showMessage("Please select a month.");
+
         return;
+
     }
 
-    // Selected month transactions
+
+    // ========================================
+    // SELECT MONTH TRANSACTIONS
+    // ========================================
+
     const monthTransactions = allTransactions.filter(item =>
+
         item.date.startsWith(selectedMonth)
+
     );
 
 
-    // Show pending salary separately
+    // ========================================
+    // SELECT MONTH LEAVES
+    // ========================================
+
+    const monthLeaves = allLeaves.filter(item =>
+
+        item.date.startsWith(selectedMonth)
+
+    );
+
+
+    // ========================================
+    // SHOW PENDING SALARY SEPARATELY
+    // ========================================
+
     renderPendingSalary(monthTransactions);
 
 
-    // Remove pending income from main history
+    // Exclude pending salary from main table
+
     const completedTransactions = monthTransactions.filter(item =>
+
         !(item.type === "income" && item.status === "pending")
+
     );
 
 
     let totalIncome = 0;
+
     let totalExpense = 0;
+
 
     const dailyRecords = new Map();
 
 
     // ========================================
-    // COMBINE INCOME AND EXPENSE BY DATE
+    // COMBINE INCOME AND EXPENSE
     // ========================================
 
     completedTransactions.forEach(item => {
 
-        if (!item.date || !Number.isFinite(item.amount)) {
+        if (
+            !item.date ||
+            !Number.isFinite(item.amount)
+        ) {
             return;
         }
+
+
+        // Ignore month-end records
+
+        if (item.type === "month_end") {
+            return;
+        }
+
 
         if (!dailyRecords.has(item.date)) {
 
             dailyRecords.set(item.date, {
+
                 date: item.date,
+
                 income: 0,
-                expense: 0
+
+                expense: 0,
+
+                isLeave: false,
+
+                leaveReason: ""
+
             });
+
         }
 
+
         const record = dailyRecords.get(item.date);
+
 
         if (item.type === "income") {
 
             record.income += item.amount;
+
             totalIncome += item.amount;
 
-        } else if (item.type === "expense") {
+        }
+
+        else if (item.type === "expense") {
 
             record.expense += item.amount;
+
             totalExpense += item.amount;
+
         }
+
+    });
+
+
+    // ========================================
+    // ADD LEAVE RECORDS
+    // ========================================
+
+    monthLeaves.forEach(leave => {
+
+        if (!leave.date) return;
+
+
+        if (!dailyRecords.has(leave.date)) {
+
+            dailyRecords.set(leave.date, {
+
+                date: leave.date,
+
+                income: 0,
+
+                expense: 0,
+
+                isLeave: true,
+
+                leaveReason: ""
+
+            });
+
+        }
+
+
+        const record = dailyRecords.get(leave.date);
+
+
+        record.isLeave = true;
+
+
+        // Leave reason shown in expense column
+
+        record.leaveReason = [
+
+            leave.leave_type,
+
+            leave.leave_reason
+
+        ].filter(Boolean).join(" - ");
+
+
     });
 
 
@@ -289,7 +477,12 @@ function renderHistory() {
     // ========================================
 
     const records = [...dailyRecords.values()]
-        .sort((a, b) => a.date.localeCompare(b.date));
+
+        .sort((a, b) =>
+
+            a.date.localeCompare(b.date)
+
+        );
 
 
     // ========================================
@@ -298,8 +491,11 @@ function renderHistory() {
 
     const balance = totalIncome - totalExpense;
 
+
     const budgetUsed = monthlyBudget > 0
+
         ? (totalExpense / monthlyBudget) * 100
+
         : 0;
 
 
@@ -319,7 +515,9 @@ function renderHistory() {
     $("history-balance").textContent =
         formatCurrency(balance);
 
+
     $("history-balance").style.color =
+
         balance < 0 ? "#ff7188" : "#55c3ff";
 
 
@@ -328,11 +526,16 @@ function renderHistory() {
     // ========================================
 
     $("history-budget-bar").style.width =
+
         `${Math.min(budgetUsed, 100)}%`;
 
+
     $("history-budget-status").textContent =
+
         monthlyBudget > 0
+
             ? `${budgetUsed.toFixed(1)}% Used`
+
             : "No budget set";
 
 
@@ -341,11 +544,17 @@ function renderHistory() {
     // ========================================
 
     $("selected-month-label").textContent =
+
         new Intl.DateTimeFormat("en-IN", {
+
             month: "long",
+
             year: "numeric"
+
         }).format(
+
             new Date(`${selectedMonth}-01T00:00:00`)
+
         );
 
 
@@ -366,6 +575,7 @@ function renderHistory() {
 
     tableBody.replaceChildren();
 
+
     if (records.length === 0) {
 
         const row = document.createElement("tr");
@@ -383,22 +593,58 @@ function renderHistory() {
 
         tableBody.appendChild(row);
 
-    } else {
+    }
+
+    else {
 
         records.forEach((record, index) => {
 
             const row = document.createElement("tr");
 
-            const values = [
-                index + 1,
-                formatDate(record.date),
-                record.income > 0
+
+            // Leave row
+
+            if (record.isLeave) {
+
+                row.classList.add("leave-history-row");
+
+            }
+
+
+            const incomeValue = record.isLeave
+
+                ? "Leave"
+
+                : record.income > 0
+
                     ? formatCurrency(record.income)
-                    : "—",
-                record.expense > 0
+
+                    : "—";
+
+
+            const expenseValue = record.isLeave
+
+                ? record.leaveReason || "Leave"
+
+                : record.expense > 0
+
                     ? formatCurrency(record.expense)
-                    : "—"
+
+                    : "—";
+
+
+            const values = [
+
+                index + 1,
+
+                formatDate(record.date),
+
+                incomeValue,
+
+                expenseValue
+
             ];
+
 
             values.forEach((value, cellIndex) => {
 
@@ -406,22 +652,42 @@ function renderHistory() {
 
                 cell.textContent = value;
 
+
                 if (cellIndex === 2) {
+
                     cell.classList.add("income-cell");
+
                 }
+
 
                 if (cellIndex === 3) {
+
                     cell.classList.add("expense-cell");
+
                 }
 
+
+                if (record.isLeave) {
+
+                    cell.classList.add("leave-cell");
+
+                }
+
+
                 row.appendChild(cell);
+
             });
 
+
             tableBody.appendChild(row);
+
         });
+
     }
 
+
     showMessage("");
+
 }
 
 
@@ -434,8 +700,11 @@ function getCurrentMonth() {
     const today = new Date();
 
     return `${today.getFullYear()}-${String(
+
         today.getMonth() + 1
+
     ).padStart(2, "0")}`;
+
 }
 
 
@@ -455,7 +724,9 @@ monthInput.addEventListener("change", renderHistory);
 // ========================================
 
 $("print-report").addEventListener("click", () => {
+
     window.print();
+
 });
 
 
@@ -464,7 +735,9 @@ $("print-report").addEventListener("click", () => {
 // ========================================
 
 $("download-pdf").addEventListener("click", () => {
+
     window.print();
+
 });
 
 
