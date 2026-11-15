@@ -719,3 +719,24 @@ body {
         color: #183b68 !important;
     }
 }
+
+
+/* LEAVE SPECIAL COLOUR */
+
+.leave-cell {
+    color: #f5c76b !important;
+    font-weight: 700 !important;
+    background: rgba(245, 199, 107, 0.10) !important;
+    border-left: 3px solid #f5c76b !important;
+}
+
+.leave-badge {
+    display: inline-block;
+    padding: 5px 12px;
+    color: #f5c76b;
+    background: rgba(245, 199, 107, 0.12);
+    border: 1px solid rgba(245, 199, 107, 0.4);
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
