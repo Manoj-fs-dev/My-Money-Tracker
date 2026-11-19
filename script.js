@@ -2082,3 +2082,207 @@ if (document.readyState === "loading") {
 } else {
     initializeApp();
 }
+
+
+
+
+/* ========================================
+   BANK TRANSFER MANAGEMENT
+======================================== */
+
+let bankTransfers = [];
+let totalBankTransferred = 0;
+
+const bankTransferForm = document.getElementById("bank-transfer-form");
+const bankTransferHistory = document.getElementById("bank-transfer-history");
+
+async function loadBankTransfers() {
+    try {
+        const result = await apiRequest("/bank-transfers");
+
+        bankTransfers = result.transfers || [];
+        totalBankTransferred = Number(result.total_transferred) || 0;
+
+        renderBankTransferHistory();
+        updateDashboard();
+
+    } catch (error) {
+        console.error("Bank transfer loading error:", error);
+        showToast("Could not load bank transfers: " + error.message, "error");
+    }
+}
+
+async function saveBankTransfer(data) {
+    return apiRequest("/bank-transfers", {
+        method: "POST",
+        body: JSON.stringify(data)
+    });
+}
+
+function renderBankTransferHistory() {
+
+    if (!bankTransferHistory) return;
+
+    bankTransferHistory.replaceChildren();
+
+    if (bankTransfers.length === 0) {
+        const empty = document.createElement("p");
+        empty.textContent = "No bank transfers recorded yet.";
+        empty.className = "analytics-empty";
+
+        bankTransferHistory.appendChild(empty);
+        return;
+    }
+
+    bankTransfers.forEach(item => {
+
+        const row = document.createElement("div");
+        row.className = "bank-transfer-row";
+
+        const details = document.createElement("div");
+        details.className = "bank-transfer-details";
+
+        const bank = document.createElement("strong");
+        bank.textContent = item.bank_name || "Bank Transfer";
+
+        const date = document.createElement("span");
+        date.textContent = formatDate(item.transfer_date);
+
+        const note = document.createElement("small");
+        note.textContent = item.note || "Money transferred";
+
+        details.append(bank, date, note);
+
+        const amount = document.createElement("strong");
+        amount.className = "bank-transfer-amount";
+        amount.textContent = formatCurrency(item.amount);
+
+        row.append(details, amount);
+
+        bankTransferHistory.appendChild(row);
+    });
+}
+
+if (bankTransferForm) {
+
+    bankTransferForm.addEventListener("submit", async event => {
+
+        event.preventDefault();
+
+        const amount = Number(
+            document.getElementById("bank-transfer-amount").value
+        );
+
+        const transferDate =
+            document.getElementById("bank-transfer-date").value;
+
+        const bankName =
+            document.getElementById("bank-name").value.trim();
+
+        const note =
+            document.getElementById("bank-transfer-note").value.trim();
+
+        if (
+            !Number.isFinite(amount) ||
+            amount <= 0 ||
+            !transferDate ||
+            transferDate > getTodayDate()
+        ) {
+            showToast("Enter valid bank transfer details.", "error");
+            return;
+        }
+
+        const currentBalance = getReceivedIncome(
+            getMonthlyTransactions()
+        ) - getExpenses(getMonthlyTransactions())
+        - bankTransfers
+            .filter(item => item.transfer_date.startsWith(getCurrentMonth()))
+            .reduce((sum, item) => sum + Number(item.amount), 0);
+
+        if (amount > currentBalance) {
+            showToast(
+                "Transfer amount exceeds your available balance.",
+                "error"
+            );
+            return;
+        }
+
+        const submitButton =
+            bankTransferForm.querySelector('[type="submit"]');
+
+        if (submitButton) submitButton.disabled = true;
+
+        try {
+
+            await saveBankTransfer({
+                amount,
+                transfer_date: transferDate,
+                bank_name: bankName,
+                note
+            });
+
+            await loadBankTransfers();
+
+            bankTransferForm.reset();
+
+            const dateInput =
+                document.getElementById("bank-transfer-date");
+
+            if (dateInput) dateInput.value = getTodayDate();
+
+            showToast(
+                formatCurrency(amount) + " transferred successfully!",
+                "success"
+            );
+
+        } catch (error) {
+
+            console.error("Bank transfer error:", error);
+
+            showToast(error.message, "error");
+
+        } finally {
+
+            if (submitButton) submitButton.disabled = false;
+        }
+    });
+}
+
+/* ========================================
+   BANK TRANSFER DASHBOARD CALCULATION
+======================================== */
+
+function getMonthlyBankTransferred() {
+
+    const month = getCurrentMonth();
+
+    return bankTransfers
+        .filter(item =>
+            item.transfer_date.startsWith(month)
+        )
+        .reduce(
+            (sum, item) => sum + Number(item.amount),
+            0
+        );
+}
+
+/* ========================================
+   INITIAL LOAD
+======================================== */
+
+const originalInitializeApp = initializeApp;
+
+initializeApp = async function () {
+
+    await originalInitializeApp();
+
+    await loadBankTransfers();
+
+    const dateInput =
+        document.getElementById("bank-transfer-date");
+
+    if (dateInput) {
+        dateInput.value = getTodayDate();
+        dateInput.max = getTodayDate();
+    }
+};
