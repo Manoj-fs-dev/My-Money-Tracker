@@ -757,8 +757,9 @@ if (bankTransferForm) {
 
         if (submitButton) submitButton.disabled = true;
 
+
         try {
-            // Save transfer
+
             await createBankTransfer({
                 amount,
                 date,
@@ -766,34 +767,39 @@ if (bankTransferForm) {
                 note
             });
 
-            // Show success immediately after successful save
-            showToast(
-                `Your ${formatCurrency(amount)} has been transferred to your bank account.`,
-                "success",
-                "Bank Transfer Successful!"
-            );
-
             bankTransferForm.reset();
 
             if (bankTransferDateInput) {
                 bankTransferDateInput.value = getTodayDate();
             }
 
-            // Reload history separately
+            // Refresh transfer history
             await loadBankTransfers();
 
+            // Show success popup
+            showToast(
+                `₹${amount.toLocaleString("en-IN")} transferred successfully to ${bankName}.`,
+                "success",
+                "BANK TRANSFER SUCCESSFUL!"
+            );
+
         } catch (error) {
+
             console.error("Bank transfer failed:", error);
 
             showToast(
                 error.message,
                 "error",
-                "Transfer Failed"
+                "TRANSFER FAILED"
             );
 
         } finally {
-            if (submitButton) submitButton.disabled = false;
+
+            if (submitButton) {
+                submitButton.disabled = false;
+            }
         }
+
     });
 }
 // ========================================
@@ -2295,19 +2301,3 @@ if (document.readyState === "loading") {
 } else {
     initializeApp();
 }
-
-
-
-
-
-
-// TEST TOAST POPUP
-document.addEventListener("DOMContentLoaded", () => {
-    setTimeout(() => {
-        showToast(
-            "Toast notification working!",
-            "success",
-            "Test Successful!"
-        );
-    }, 1000);
-});
