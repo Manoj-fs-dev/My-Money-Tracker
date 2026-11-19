@@ -718,51 +718,34 @@ function renderBankTransferHistory() {
 // ADD BANK TRANSFER
 // ========================================
 
+
 if (bankTransferForm) {
     bankTransferForm.addEventListener("submit", async event => {
         event.preventDefault();
 
         const amount = Number(bankTransferAmountInput?.value);
-
         const date = bankTransferDateInput?.value;
-
         const bankName = $("#bank-name")?.value.trim() || "";
-
         const note = bankTransferNoteInput?.value.trim() || "";
 
-        if (
-            !Number.isFinite(amount) ||
-            amount <= 0 ||
-            amount >= 100000000
-        ) {
-            showToast(
-                "Enter a valid transfer amount.",
-                "error"
-            );
+        if (!Number.isFinite(amount) || amount <= 0 || amount >= 100000000) {
+            showToast("Enter a valid transfer amount.", "error");
             return;
         }
 
         if (!date || date > getTodayDate()) {
-            showToast(
-                "Enter a valid transfer date.",
-                "error"
-            );
+            showToast("Enter a valid transfer date.", "error");
             return;
         }
 
         if (date.slice(0, 7) !== getCurrentMonth()) {
-            showToast(
-                "Please select a date in the current month.",
-                "warning"
-            );
+            showToast("Please select a date in the current month.", "warning");
             return;
         }
 
-        const availableBalance = getAvailableBalance();
-
-        if (amount > availableBalance) {
+        if (amount > getAvailableBalance()) {
             showToast(
-                `Insufficient balance. Available: ${formatCurrency(availableBalance)}`,
+                `Insufficient balance. Available: ${formatCurrency(getAvailableBalance())}`,
                 "error",
                 "Insufficient Balance"
             );
@@ -775,7 +758,7 @@ if (bankTransferForm) {
         if (submitButton) submitButton.disabled = true;
 
         try {
-            // SAVE TRANSFER TO DATABASE
+            // Save transfer
             await createBankTransfer({
                 amount,
                 date,
@@ -783,28 +766,21 @@ if (bankTransferForm) {
                 note
             });
 
-            // RELOAD BANK TRANSFER HISTORY
-            const loaded = await loadBankTransfers();
+            // Show success immediately after successful save
+            showToast(
+                `Your ${formatCurrency(amount)} has been transferred to your bank account.`,
+                "success",
+                "Bank Transfer Successful!"
+            );
 
-            if (!loaded) {
-                throw new Error(
-                    "Transfer saved, but history could not be reloaded."
-                );
-            }
-
-            // RESET FORM
             bankTransferForm.reset();
 
             if (bankTransferDateInput) {
                 bankTransferDateInput.value = getTodayDate();
             }
 
-            // SUCCESS POPUP
-            showToast(
-                `Your ${formatCurrency(amount)} is transferred to your bank account.`,
-                "success",
-                "Bank Transfer Successful!"
-            );
+            // Reload history separately
+            await loadBankTransfers();
 
         } catch (error) {
             console.error("Bank transfer failed:", error);
