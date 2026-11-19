@@ -1,30 +1,27 @@
-// ========================================
-// MY MONEY TRACKER - COMPLETE SCRIPT
-// Backend + MySQL + Monthly Overview
-// Expense Breakdown + Budget + Notifications
-// ========================================
 
 "use strict";
+
+// ========================================
+// MY MONEY TRACKER - COMPLETE SCRIPT
+// Income + Expense + Budget + Leave
+// Monthly Overview + Bank Transfer
+// Transfer History + Notifications
+// ========================================
 
 const API_BASE = "/api";
 const BUDGET_STORAGE_KEY = "myMoneyTrackerMonthlyBudget";
 
-function getSavedMonthlyBudget() {
-    try {
-        const value = Number(localStorage.getItem(BUDGET_STORAGE_KEY));
-        return Number.isFinite(value) && value > 0 ? value : 0;
-    } catch {
-        return 0;
-    }
-}
+const $ = selector => document.querySelector(selector);
 
-let MONTHLY_BUDGET = getSavedMonthlyBudget();
+let MONTHLY_BUDGET = 0;
 let transactions = [];
+let bankTransfers = [];
 let isLoading = false;
 
-const $ = (selector) => document.querySelector(selector);
+// ========================================
+// DASHBOARD ELEMENTS
+// ========================================
 
-// Dashboard elements
 const totalIncomeElement = $("#total-income");
 const totalExpensesElement = $("#total-expenses");
 const availableBalanceElement = $("#available-balance");
@@ -36,6 +33,23 @@ const transactionListElement = $("#transaction-list");
 const todayIncomeElement = $("#today-income");
 const todayExpensesElement = $("#today-expenses");
 const currentDateElement = $("#current-date");
+
+const monthlyOverviewContainer = $("#monthly-overview-data");
+const expenseBreakdownContainer = $("#expense-breakdown-data");
+
+const previousMonthPendingContainer =
+    $("#previous-month-pending-data");
+
+const previousMonthLabel = $("#previous-month-label");
+
+// Bank transfer elements
+const bankTransferForm = $("#bank-transfer-form");
+const bankTransferAmountInput = $("#bank-transfer-amount");
+const bankTransferDateInput = $("#bank-transfer-date");
+const bankTransferNoteInput = $("#bank-transfer-note");
+
+const bankTransferHistory = $("#bank-transfer-history");
+const bankTransferredElement = $("#bank-transferred-amount");
 
 // Forms
 const incomeForm = $("#income-form");
@@ -50,18 +64,11 @@ const expenseAmountInput = $("#expense-amount");
 const expenseCategoryInput = $("#expense-category");
 const expenseNoteInput = $("#expense-note");
 
-// Actual containers in your index.html
-const monthlyOverviewContainer = $("#monthly-overview-data");
-const expenseBreakdownContainer = $("#expense-breakdown-data");
-
-const previousMonthPendingContainer =
-    $("#previous-month-pending-data");
-
-const previousMonthLabel =
-    $("#previous-month-label");
+// Leave form
+const leaveForm = $("#leave-form");
 
 // ========================================
-// DATE AND CURRENCY HELPERS
+// DATE HELPERS
 // ========================================
 
 function getTodayDate() {
@@ -77,7 +84,6 @@ function getTodayDate() {
 function getCurrentMonth() {
     return getTodayDate().slice(0, 7);
 }
-
 
 function getPreviousMonth() {
     const today = new Date();
@@ -129,7 +135,6 @@ async function apiRequest(endpoint, options = {}) {
 
     if (!response.ok) {
         throw new Error(
-            result.details ||
             result.error ||
             result.message ||
             `Request failed (${response.status})`
@@ -138,6 +143,228 @@ async function apiRequest(endpoint, options = {}) {
 
     return result;
 }
+
+// ========================================
+// TOAST NOTIFICATIONS
+// ========================================
+
+let toastContainer;
+
+function createToastContainer() {
+    if (toastContainer && document.body.contains(toastContainer)) {
+        return toastContainer;
+    }
+
+    toastContainer = document.createElement("div");
+    toastContainer.className = "toast-container-custom";
+    toastContainer.setAttribute("aria-live", "polite");
+
+    document.body.appendChild(toastContainer);
+
+    return toastContainer;
+}
+
+function showToast(message, type = "success", title = "") {
+    const container = createToastContainer();
+
+    const settings = {
+        success: ["bi-check-circle-fill", title || "Success!"],
+        error: ["bi-x-circle-fill", title || "Something went wrong"],
+        warning: ["bi-exclamation-triangle-fill", title || "Attention!"],
+        info: ["bi-info-circle-fill", title || "Information"]
+    };
+
+    const config = settings[type] || settings.info;
+
+    const toast = document.createElement("div");
+    toast.className = `custom-toast ${type}`;
+    toast.setAttribute(
+        "role",
+        type === "error" ? "alert" : "status"
+    );
+
+    const icon = document.createElement("div");
+    icon.className = "toast-icon";
+
+    const iconElement = document.createElement("i");
+    iconElement.className = `bi ${config[0]}`;
+
+    icon.appendChild(iconElement);
+
+    const content = document.createElement("div");
+    content.className = "toast-message";
+
+    const heading = document.createElement("strong");
+    heading.textContent = config[1];
+
+    const description = document.createElement("p");
+    description.textContent = message;
+
+    content.append(heading, description);
+
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "toast-close";
+    closeButton.textContent = "×";
+    closeButton.setAttribute("aria-label", "Close notification");
+
+    toast.append(icon, content, closeButton);
+
+    const progress = document.createElement("div");
+    progress.className = "toast-progress";
+
+    toast.appendChild(progress);
+    container.appendChild(toast);
+
+    let removed = false;
+
+    function removeToast() {
+        if (removed) return;
+
+        removed = true;
+        toast.classList.add("toast-leaving");
+
+        setTimeout(() => toast.remove(), 260);
+    }
+
+    const timeoutId = setTimeout(removeToast, 4000);
+
+    closeButton.addEventListener("click", () => {
+        clearTimeout(timeoutId);
+        removeToast();
+    });
+}
+
+// ========================================
+// CONFIRMATION DIALOG
+// ========================================
+
+function showChoiceDialog({
+    title = "Are you sure?",
+    message = "Please choose an option.",
+    icon = "bi-question-circle-fill",
+    buttons = []
+}) {
+    return new Promise(resolve => {
+        const overlay = document.createElement("div");
+        overlay.className = "neon-modal-overlay";
+
+        const modal = document.createElement("section");
+        modal.className = "neon-modal";
+        modal.setAttribute("role", "dialog");
+        modal.setAttribute("aria-modal", "true");
+
+        const iconElement = document.createElement("div");
+        iconElement.className = "neon-modal-icon";
+
+        const iconTag = document.createElement("i");
+        iconTag.className = `bi ${icon}`;
+
+        iconElement.appendChild(iconTag);
+
+        const heading = document.createElement("h3");
+        heading.textContent = title;
+
+        const description = document.createElement("p");
+        description.textContent = message;
+
+        const actions = document.createElement("div");
+        actions.className = "neon-modal-actions";
+
+        let finished = false;
+
+        function closeDialog(value) {
+            if (finished) return;
+
+            finished = true;
+            document.removeEventListener("keydown", handleKeydown);
+            overlay.remove();
+            resolve(value);
+        }
+
+        function handleKeydown(event) {
+            if (event.key === "Escape") closeDialog(null);
+        }
+
+        buttons.forEach(config => {
+            const button = document.createElement("button");
+
+            button.type = "button";
+            button.className =
+                `neon-modal-btn ${config.className || "neon-btn-secondary"}`;
+
+            button.textContent = config.label;
+
+            button.addEventListener("click", () => {
+                closeDialog(config.value);
+            });
+
+            actions.appendChild(button);
+        });
+
+        overlay.addEventListener("click", event => {
+            if (event.target === overlay) closeDialog(null);
+        });
+
+        modal.append(iconElement, heading, description, actions);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        document.addEventListener("keydown", handleKeydown);
+        actions.querySelector("button")?.focus();
+    });
+}
+
+function showConfirmDialog(message, title = "Confirm Action") {
+    return showChoiceDialog({
+        title,
+        message,
+        icon: "bi-shield-check",
+        buttons: [
+            {
+                label: "Cancel",
+                value: false,
+                className: "neon-btn-secondary"
+            },
+            {
+                label: "Yes, Confirm",
+                value: true,
+                className: "neon-btn-primary"
+            }
+        ]
+    }).then(value => value === true);
+}
+
+function showIncomeStatusDialog(amount) {
+    return showChoiceDialog({
+        title: "Salary Received?",
+        message:
+            `${formatCurrency(amount)}\n\n` +
+            "Has this money already reached your bank account or hands?",
+        icon: "bi-cash-stack",
+        buttons: [
+            {
+                label: "Cancel",
+                value: null,
+                className: "neon-btn-secondary"
+            },
+            {
+                label: "Still Pending",
+                value: "pending",
+                className: "neon-btn-warning"
+            },
+            {
+                label: "✓ Received",
+                value: "received",
+                className: "neon-btn-success"
+            }
+        ]
+    });
+}
+
+// ========================================
+// TRANSACTION NORMALIZATION
+// ========================================
 
 function normalizeTransaction(item) {
     return {
@@ -155,6 +382,10 @@ function normalizeTransaction(item) {
         created_at: item.created_at || null
     };
 }
+
+// ========================================
+// LOAD TRANSACTIONS
+// ========================================
 
 async function loadTransactions(showMessage = false) {
     try {
@@ -230,11 +461,12 @@ async function updateIncomeTransaction(id, transaction) {
 }
 
 // ========================================
-// MONTHLY BUDGET - DATABASE
+// MONTHLY BUDGET
 // ========================================
 
 async function loadMonthlyBudget() {
     const result = await apiRequest("/budget");
+
     const amount = Number(result.monthly_budget);
 
     if (!Number.isFinite(amount) || amount < 0) {
@@ -242,15 +474,6 @@ async function loadMonthlyBudget() {
     }
 
     MONTHLY_BUDGET = amount;
-
-    try {
-        localStorage.setItem(
-            BUDGET_STORAGE_KEY,
-            String(amount)
-        );
-    } catch (error) {
-        console.warn("Budget cache unavailable:", error);
-    }
 
     updateDashboard();
 }
@@ -265,278 +488,68 @@ async function saveMonthlyBudget(amount) {
 
     MONTHLY_BUDGET = Number(result.monthly_budget);
 
-    try {
-        localStorage.setItem(
-            BUDGET_STORAGE_KEY,
-            String(MONTHLY_BUDGET)
-        );
-    } catch (error) {
-        console.warn("Budget cache unavailable:", error);
-    }
-
     updateDashboard();
 
     return MONTHLY_BUDGET;
 }
 
 // ========================================
-// TOAST NOTIFICATIONS
+// BANK TRANSFER API
+// Requires GET /api/transfers
+// Requires POST /api/transfers
 // ========================================
 
-let toastContainer;
-
-function createToastContainer() {
-    if (toastContainer && document.body.contains(toastContainer)) {
-        return toastContainer;
-    }
-
-    toastContainer = document.createElement("div");
-    toastContainer.className = "toast-container-custom";
-    toastContainer.setAttribute("aria-live", "polite");
-
-    document.body.appendChild(toastContainer);
-
-    return toastContainer;
-}
-
-function showToast(message, type = "success", title = "") {
-    const container = createToastContainer();
-
-    const settings = {
-        success: ["bi-check-circle-fill", title || "Success!"],
-        error: ["bi-x-circle-fill", title || "Something went wrong"],
-        warning: ["bi-exclamation-triangle-fill", title || "Attention!"],
-        info: ["bi-info-circle-fill", title || "Information"]
+function normalizeBankTransfer(item) {
+    return {
+        id: Number(item.id),
+        amount: Number(item.amount),
+        date: String(
+            item.date || item.transfer_date || ""
+        ).slice(0, 10),
+        note: item.note || ""
     };
+}
 
-    const config = settings[type] || settings.info;
+async function loadBankTransfers() {
+    const result = await apiRequest("/transfers");
 
-    const toast = document.createElement("div");
-    toast.className = `custom-toast ${type}`;
-    toast.setAttribute(
-        "role",
-        type === "error" ? "alert" : "status"
-    );
-
-    const icon = document.createElement("div");
-    icon.className = "toast-icon";
-
-    const iconElement = document.createElement("i");
-    iconElement.className = `bi ${config[0]}`;
-
-    icon.appendChild(iconElement);
-
-    const content = document.createElement("div");
-    content.className = "toast-message";
-
-    const heading = document.createElement("strong");
-    heading.textContent = config[1];
-
-    const description = document.createElement("p");
-    description.textContent = message;
-
-    content.append(heading, description);
-
-    const closeButton = document.createElement("button");
-    closeButton.type = "button";
-    closeButton.className = "toast-close";
-    closeButton.textContent = "×";
-    closeButton.setAttribute(
-        "aria-label",
-        "Close notification"
-    );
-
-    toast.append(icon, content, closeButton);
-
-    const progress = document.createElement("div");
-    progress.className = "toast-progress";
-    progress.setAttribute("aria-hidden", "true");
-
-    toast.appendChild(progress);
-    container.appendChild(toast);
-
-    let removed = false;
-
-    function removeToast() {
-        if (removed) return;
-
-        removed = true;
-        toast.classList.add("toast-leaving");
-
-        setTimeout(() => toast.remove(), 260);
+    if (!Array.isArray(result)) {
+        throw new Error("Invalid bank transfer response.");
     }
 
-    const timeoutId = setTimeout(removeToast, 4000);
+    bankTransfers = result.map(normalizeBankTransfer);
 
-    closeButton.addEventListener("click", () => {
-        clearTimeout(timeoutId);
-        removeToast();
+    updateDashboard();
+
+    return true;
+}
+
+async function createBankTransfer(transfer) {
+    return apiRequest("/transfers", {
+        method: "POST",
+        body: JSON.stringify({
+            amount: transfer.amount,
+            transfer_date: transfer.date,
+            note: transfer.note
+        })
     });
 }
 
 // ========================================
-// CUSTOM CONFIRMATION DIALOG
-// ========================================
-
-function showChoiceDialog({
-    title = "Are you sure?",
-    message = "Please choose an option.",
-    icon = "bi-question-circle-fill",
-    buttons = []
-}) {
-    return new Promise((resolve) => {
-        const overlay = document.createElement("div");
-        overlay.className = "neon-modal-overlay";
-
-        const modal = document.createElement("section");
-        modal.className = "neon-modal";
-        modal.setAttribute("role", "dialog");
-        modal.setAttribute("aria-modal", "true");
-
-        const iconElement = document.createElement("div");
-        iconElement.className = "neon-modal-icon";
-
-        const iconTag = document.createElement("i");
-        iconTag.className = `bi ${icon}`;
-
-        iconElement.appendChild(iconTag);
-
-        const heading = document.createElement("h3");
-        heading.textContent = title;
-
-        const description = document.createElement("p");
-        description.textContent = message;
-
-        const actions = document.createElement("div");
-        actions.className = "neon-modal-actions";
-
-        let finished = false;
-
-        function closeDialog(value) {
-            if (finished) return;
-
-            finished = true;
-
-            document.removeEventListener(
-                "keydown",
-                handleKeydown
-            );
-
-            overlay.remove();
-            resolve(value);
-        }
-
-        function handleKeydown(event) {
-            if (event.key === "Escape") {
-                closeDialog(null);
-            }
-        }
-
-        buttons.forEach((config) => {
-            const button = document.createElement("button");
-
-            button.type = "button";
-
-            button.className =
-                `neon-modal-btn ${config.className || "neon-btn-secondary"
-                }`;
-
-            button.textContent = config.label;
-
-            button.addEventListener("click", () => {
-                closeDialog(config.value);
-            });
-
-            actions.appendChild(button);
-        });
-
-        overlay.addEventListener("click", (event) => {
-            if (event.target === overlay) {
-                closeDialog(null);
-            }
-        });
-
-        modal.append(
-            iconElement,
-            heading,
-            description,
-            actions
-        );
-
-        overlay.appendChild(modal);
-        document.body.appendChild(overlay);
-
-        document.addEventListener("keydown", handleKeydown);
-
-        actions.querySelector("button")?.focus();
-    });
-}
-
-function showConfirmDialog(
-    message,
-    title = "Confirm Action"
-) {
-    return showChoiceDialog({
-        title,
-        message,
-        icon: "bi-shield-check",
-        buttons: [
-            {
-                label: "Cancel",
-                value: false,
-                className: "neon-btn-secondary"
-            },
-            {
-                label: "Yes, Confirm",
-                value: true,
-                className: "neon-btn-primary"
-            }
-        ]
-    }).then((value) => value === true);
-}
-
-function showIncomeStatusDialog(amount) {
-    return showChoiceDialog({
-        title: "Salary Received?",
-        message:
-            `${formatCurrency(amount)}\n\n` +
-            "Has this money already reached your bank account or hands?",
-        icon: "bi-cash-stack",
-        buttons: [
-            {
-                label: "Cancel",
-                value: null,
-                className: "neon-btn-secondary"
-            },
-            {
-                label: "Still Pending",
-                value: "pending",
-                className: "neon-btn-warning"
-            },
-            {
-                label: "✓ Received",
-                value: "received",
-                className: "neon-btn-success"
-            }
-        ]
-    });
-}
-
-// ========================================
-// TRANSACTION CALCULATIONS
+// BANK TRANSFER CALCULATIONS
 // ========================================
 
 function getMonthlyTransactions() {
     const month = getCurrentMonth();
 
-    return transactions.filter(
-        (item) => item.date.startsWith(month)
+    return transactions.filter(item =>
+        item.date.startsWith(month)
     );
 }
 
 function getReceivedIncome(list) {
     return list
-        .filter((item) =>
+        .filter(item =>
             item.type === "income" &&
             item.status === "received"
         )
@@ -545,7 +558,7 @@ function getReceivedIncome(list) {
 
 function getPendingIncome(list) {
     return list
-        .filter((item) =>
+        .filter(item =>
             item.type === "income" &&
             item.status === "pending"
         )
@@ -554,13 +567,182 @@ function getPendingIncome(list) {
 
 function getExpenses(list) {
     return list
-        .filter((item) => item.type === "expense")
+        .filter(item => item.type === "expense")
         .reduce((sum, item) => sum + item.amount, 0);
+}
+
+function getMonthlyBankTransfers() {
+    const month = getCurrentMonth();
+
+    return bankTransfers.filter(item =>
+        item.date.startsWith(month)
+    );
+}
+
+function getTotalBankTransferred() {
+    return getMonthlyBankTransfers().reduce(
+        (sum, item) => sum + item.amount,
+        0
+    );
+}
+
+function getTotalBalanceBeforeTransfer() {
+    const list = getMonthlyTransactions();
+
+    return getReceivedIncome(list) - getExpenses(list);
+}
+
+function getAvailableBalance() {
+    return (
+        getTotalBalanceBeforeTransfer() -
+        getTotalBankTransferred()
+    );
+}
+
+// ========================================
+// BANK TRANSFER HISTORY
+// ========================================
+
+function renderBankTransferHistory() {
+    const container = bankTransferHistory;
+
+    if (!container) return;
+
+    container.replaceChildren();
+
+    const list = getMonthlyBankTransfers()
+        .slice()
+        .sort((a, b) =>
+            b.date.localeCompare(a.date) || b.id - a.id
+        );
+
+    if (list.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "analytics-empty";
+        empty.textContent = "No bank transfers recorded this month.";
+
+        container.appendChild(empty);
+        return;
+    }
+
+    list.forEach(item => {
+        const row = document.createElement("div");
+        row.className = "bank-transfer-history-row";
+
+        const details = document.createElement("div");
+        details.className = "bank-transfer-details";
+
+        const title = document.createElement("strong");
+        title.textContent = item.note || "Bank Transfer";
+
+        const date = document.createElement("span");
+        date.textContent = formatDate(item.date);
+
+        details.append(title, date);
+
+        const right = document.createElement("div");
+        right.className = "bank-transfer-right";
+
+        const amount = document.createElement("strong");
+        amount.textContent = formatCurrency(item.amount);
+        amount.style.color = "var(--green)";
+
+        const label = document.createElement("small");
+        label.textContent = "Transferred";
+
+        right.append(amount, label);
+        row.append(details, right);
+
+        container.appendChild(row);
+    });
+}
+
+// ========================================
+// ADD BANK TRANSFER
+// ========================================
+
+if (bankTransferForm) {
+    bankTransferForm.addEventListener("submit", async event => {
+        event.preventDefault();
+
+        const amount = Number(bankTransferAmountInput.value);
+        const date = bankTransferDateInput.value;
+        const note = bankTransferNoteInput?.value.trim() || "";
+
+        if (
+            !Number.isFinite(amount) ||
+            amount <= 0 ||
+            amount >= 100000000
+        ) {
+            showToast("Enter a valid transfer amount.", "error");
+            return;
+        }
+
+        if (!date || date > getTodayDate()) {
+            showToast("Enter a valid transfer date.", "error");
+            return;
+        }
+
+        if (date.slice(0, 7) !== getCurrentMonth()) {
+            showToast(
+                "Please select a date in the current month.",
+                "warning"
+            );
+            return;
+        }
+
+        if (amount > getAvailableBalance()) {
+            showToast(
+                `Insufficient balance. Available: ${formatCurrency(getAvailableBalance())}`,
+                "error",
+                "Insufficient Balance"
+            );
+            return;
+        }
+
+        const submitButton =
+            bankTransferForm.querySelector('[type="submit"]');
+
+        if (submitButton) submitButton.disabled = true;
+
+        try {
+            await createBankTransfer({
+                amount,
+                date,
+                note
+            });
+
+            await loadBankTransfers();
+
+            bankTransferForm.reset();
+
+            if (bankTransferDateInput) {
+                bankTransferDateInput.value = getTodayDate();
+            }
+
+            showToast(
+                `${formatCurrency(amount)} transferred successfully.`,
+                "success",
+                "Bank Transfer Saved!"
+            );
+
+        } catch (error) {
+            console.error("Bank transfer failed:", error);
+
+            showToast(
+                error.message,
+                "error",
+                "Transfer Failed"
+            );
+
+        } finally {
+            if (submitButton) submitButton.disabled = false;
+        }
+    });
 }
 
 // ========================================
 // MONTHLY OVERVIEW
-// Uses #monthly-overview-data from your HTML
 // ========================================
 
 function updateMonthlyOverview() {
@@ -568,27 +750,21 @@ function updateMonthlyOverview() {
 
     if (!container) return;
 
-    const month = getCurrentMonth();
-
-    const list = transactions.filter(
-        (item) => item.date.startsWith(month)
-    );
+    const list = getMonthlyTransactions();
 
     const income = getReceivedIncome(list);
-
-    const pendingItems = list.filter(
-        (item) =>
-            item.type === "income" &&
-            item.status === "pending"
-    );
-
     const pendingTotal = getPendingIncome(list);
     const expenses = getExpenses(list);
-    const balance = income - expenses;
+    const bankTransferred = getTotalBankTransferred();
+    const balance = income - expenses - bankTransferred;
+
+    const pendingItems = list.filter(item =>
+        item.type === "income" &&
+        item.status === "pending"
+    );
 
     container.replaceChildren();
 
-    // Summary cards
     const summary = document.createElement("div");
     summary.className = "monthly-overview-summary";
 
@@ -609,13 +785,18 @@ function updateMonthlyOverview() {
             className: "overview-pending"
         },
         {
+            label: "Bank Transferred",
+            value: formatCurrency(bankTransferred),
+            className: "overview-pending"
+        },
+        {
             label: "Available Balance",
             value: formatCurrency(balance),
             className: "overview-balance"
         }
     ];
 
-    metrics.forEach((metric) => {
+    metrics.forEach(metric => {
         const card = document.createElement("div");
         card.className = `overview-metric ${metric.className}`;
 
@@ -633,7 +814,6 @@ function updateMonthlyOverview() {
 
     container.appendChild(summary);
 
-    // Pending salary dates
     const pendingSection = document.createElement("div");
     pendingSection.className = "pending-salary-section";
 
@@ -654,7 +834,7 @@ function updateMonthlyOverview() {
         pendingItems
             .slice()
             .sort((a, b) => a.date.localeCompare(b.date))
-            .forEach((item) => {
+            .forEach(item => {
                 const row = document.createElement("div");
                 row.className = "pending-salary-row";
 
@@ -665,8 +845,7 @@ function updateMonthlyOverview() {
                 title.textContent = item.note || "Daily Salary";
 
                 const date = document.createElement("span");
-                date.textContent =
-                    `Work date: ${formatDate(item.date)}`;
+                date.textContent = `Work date: ${formatDate(item.date)}`;
 
                 details.append(title, date);
 
@@ -683,54 +862,39 @@ function updateMonthlyOverview() {
 }
 
 // ========================================
-// MONTHLY EXPENSE BREAKDOWN
-// Uses #expense-breakdown-data from your HTML
-// Groups expenses by category.
+// EXPENSE BREAKDOWN
 // ========================================
 
 function updateExpenseBreakdown() {
     const container = expenseBreakdownContainer;
 
-    if (!container) {
-        console.error(
-            "Expense Breakdown container #expense-breakdown-data not found."
-        );
-        return;
-    }
+    if (!container) return;
 
-        const month = getCurrentMonth();
+    const month = getCurrentMonth();
 
-    const expenses = transactions.filter(
-        (item) =>
-            item.type === "expense" &&
-            typeof item.date === "string" &&
-            item.date.startsWith(month)
+    const expenses = transactions.filter(item =>
+        item.type === "expense" &&
+        item.date.startsWith(month)
     );
 
-    // Group expenses by category
     const categoryTotals = new Map();
 
-    expenses.forEach((item) => {
+    expenses.forEach(item => {
         const category = item.category || "Other";
-        const amount = Number(item.amount) || 0;
 
         categoryTotals.set(
             category,
-            (categoryTotals.get(category) || 0) + amount
+            (categoryTotals.get(category) || 0) + item.amount
         );
     });
 
     const categories = [...categoryTotals.entries()]
         .sort((a, b) => b[1] - a[1]);
 
-    const total = expenses.reduce(
-        (sum, item) => sum + (Number(item.amount) || 0),
-        0
-    );
+    const total = getExpenses(expenses);
 
     container.replaceChildren();
 
-    // Total monthly expenses
     const totalRow = document.createElement("div");
     totalRow.className = "expense-breakdown-total";
 
@@ -743,20 +907,15 @@ function updateExpenseBreakdown() {
     totalRow.append(totalLabel, totalAmount);
     container.appendChild(totalRow);
 
-    // Empty state
     if (categories.length === 0) {
         const empty = document.createElement("p");
-
         empty.className = "analytics-empty";
-        empty.textContent =
-            "No expenses recorded this month yet.";
+        empty.textContent = "No expenses recorded this month yet.";
 
         container.appendChild(empty);
-
         return;
     }
 
-    // Category-wise expenses
     categories.forEach(([category, amount]) => {
         const row = document.createElement("div");
         row.className = "expense-category-row";
@@ -774,19 +933,15 @@ function updateExpenseBreakdown() {
 
         top.append(name, value);
 
-        // Percentage bar
         const track = document.createElement("div");
         track.className = "expense-category-track";
-        track.setAttribute("aria-hidden", "true");
 
         const bar = document.createElement("div");
         bar.className = "expense-category-bar";
 
-        const percentage = total > 0
-            ? (amount / total) * 100
-            : 0;
-
-        bar.style.width = `${percentage}%`;
+        bar.style.width = `${
+            total > 0 ? (amount / total) * 100 : 0
+        }%`;
 
         track.appendChild(bar);
         row.append(top, track);
@@ -805,17 +960,13 @@ function updateMonthlySections() {
 // ========================================
 
 function updatePreviousMonthPendingSalary() {
-
     const container = previousMonthPendingContainer;
 
     if (!container) return;
 
     const previousMonth = getPreviousMonth();
 
-    // Previous month name
-    const monthDate = new Date(
-        `${previousMonth}-01T00:00:00`
-    );
+    const monthDate = new Date(`${previousMonth}-01T00:00:00`);
 
     const monthName = new Intl.DateTimeFormat("en-IN", {
         month: "long",
@@ -826,9 +977,8 @@ function updatePreviousMonthPendingSalary() {
         previousMonthLabel.textContent = monthName;
     }
 
-    // Income + Pending + Previous Month ONLY
     const pendingItems = transactions
-        .filter((item) =>
+        .filter(item =>
             item.type === "income" &&
             item.status === "pending" &&
             item.date.startsWith(previousMonth)
@@ -842,7 +992,6 @@ function updatePreviousMonthPendingSalary() {
 
     container.replaceChildren();
 
-    // Total pending salary card
     const totalCard = document.createElement("div");
     totalCard.className = "previous-pending-total";
 
@@ -855,26 +1004,19 @@ function updatePreviousMonthPendingSalary() {
     totalCard.append(totalLabel, totalAmount);
     container.appendChild(totalCard);
 
-    // Empty message
     if (pendingItems.length === 0) {
-
         const empty = document.createElement("p");
-
         empty.className = "analytics-empty";
-        empty.textContent =
-            `No pending salary for ${monthName}.`;
+        empty.textContent = `No pending salary for ${monthName}.`;
 
         container.appendChild(empty);
-
         return;
     }
 
-    // Pending salary list
     const list = document.createElement("div");
     list.className = "previous-pending-list";
 
-    pendingItems.forEach((item) => {
-
+    pendingItems.forEach(item => {
         const row = document.createElement("div");
         row.className = "previous-pending-row";
 
@@ -897,11 +1039,9 @@ function updatePreviousMonthPendingSalary() {
         amount.textContent = formatCurrency(item.amount);
 
         const button = document.createElement("button");
-
         button.type = "button";
         button.className =
             "neon-modal-btn neon-btn-success previous-received-btn";
-
         button.textContent = "✓ Received";
 
         button.addEventListener("click", () => {
@@ -909,7 +1049,6 @@ function updatePreviousMonthPendingSalary() {
         });
 
         right.append(amount, button);
-
         row.append(details, right);
 
         list.appendChild(row);
@@ -919,7 +1058,7 @@ function updatePreviousMonthPendingSalary() {
 }
 
 // ========================================
-// RENDER RECENT TRANSACTIONS
+// RENDER TRANSACTIONS
 // ========================================
 
 function renderTransactions() {
@@ -944,11 +1083,10 @@ function renderTransactions() {
 
         row.appendChild(cell);
         transactionListElement.appendChild(row);
-
         return;
     }
 
-    list.forEach((item) => {
+    list.forEach(item => {
         const row = document.createElement("tr");
         const isIncome = item.type === "income";
 
@@ -957,13 +1095,11 @@ function renderTransactions() {
 
         const typeCell = document.createElement("td");
         typeCell.textContent = isIncome ? "Income" : "Expense";
-
         typeCell.style.color = isIncome
             ? "var(--green)"
             : "var(--red)";
 
         const categoryCell = document.createElement("td");
-
         categoryCell.textContent = isIncome
             ? (item.note || "Daily Income")
             : (item.category || "Other");
@@ -971,7 +1107,6 @@ function renderTransactions() {
         categoryCell.title = item.note || "";
 
         const amountCell = document.createElement("td");
-
         amountCell.textContent =
             `${isIncome ? "+" : "-"}${formatCurrency(item.amount)}`;
 
@@ -983,30 +1118,44 @@ function renderTransactions() {
 
         if (isIncome) {
             const received = item.status === "received";
+
             const actions = document.createElement("div");
-            actions.style.cssText = "display:flex;align-items:center;gap:7px;flex-wrap:wrap;";
+            actions.style.cssText =
+                "display:flex;align-items:center;gap:7px;flex-wrap:wrap;";
 
             const button = document.createElement("button");
             button.type = "button";
+
             button.className = received
                 ? "neon-modal-btn neon-btn-success"
                 : "neon-modal-btn neon-btn-warning";
-            button.style.cssText = "min-height:32px;padding:7px 10px;white-space:nowrap;";
-            button.textContent = received ? "✓ Received" : "☐ Mark Received";
+
+            button.style.cssText =
+                "min-height:32px;padding:7px 10px;white-space:nowrap;";
+
+            button.textContent = received
+                ? "✓ Received"
+                : "☐ Mark Received";
+
             button.disabled = received;
 
-            if (received) {
-                button.title = "Income already received";
-            } else {
-                button.addEventListener("click", () => markIncomeReceived(item.id));
+            if (!received) {
+                button.addEventListener("click", () => {
+                    markIncomeReceived(item.id);
+                });
             }
 
             const editButton = document.createElement("button");
             editButton.type = "button";
             editButton.className = "neon-modal-btn";
             editButton.textContent = "✏ Edit";
-            editButton.style.cssText = "min-height:32px;padding:7px 10px;white-space:nowrap;background:rgba(59,130,246,.14);color:#60a5fa;border:1px solid rgba(96,165,250,.35);";
-            editButton.addEventListener("click", () => openEditIncomeModal(item));
+
+            editButton.style.cssText =
+                "min-height:32px;padding:7px 10px;white-space:nowrap;background:rgba(59,130,246,.14);color:#60a5fa;border:1px solid rgba(96,165,250,.35);";
+
+            editButton.addEventListener("click", () => {
+                openEditIncomeModal(item);
+            });
 
             actions.append(button, editButton);
             statusCell.appendChild(actions);
@@ -1043,7 +1192,12 @@ function updateDashboard() {
 
     const income = getReceivedIncome(list);
     const expenses = getExpenses(list);
-    const balance = income - expenses;
+
+    const bankTransferred = getTotalBankTransferred();
+
+    const totalBalance = income - expenses;
+
+    const balance = totalBalance - bankTransferred;
 
     if (totalIncomeElement) {
         totalIncomeElement.textContent = formatCurrency(income);
@@ -1058,6 +1212,19 @@ function updateDashboard() {
 
         availableBalanceElement.style.color =
             balance < 0 ? "var(--red)" : "var(--primary)";
+    }
+
+    if (bankTransferredElement) {
+        bankTransferredElement.textContent =
+            formatCurrency(bankTransferred);
+    }
+
+    // Optional total balance display
+    const totalBalanceElement = $("#total-balance-before-transfer");
+
+    if (totalBalanceElement) {
+        totalBalanceElement.textContent =
+            formatCurrency(totalBalance);
     }
 
     if (monthlyLimitElement) {
@@ -1104,8 +1271,8 @@ function updateDashboard() {
 
     const today = getTodayDate();
 
-    const todayList = transactions.filter(
-        (item) => item.date === today
+    const todayList = transactions.filter(item =>
+        item.date === today
     );
 
     if (todayIncomeElement) {
@@ -1128,12 +1295,9 @@ function updateDashboard() {
     }
 
     renderTransactions();
-
-    // Update dashboard sections
     updateMonthlySections();
-
-    // Update previous month pending salary
     updatePreviousMonthPendingSalary();
+    renderBankTransferHistory();
 }
 
 // ========================================
@@ -1141,18 +1305,14 @@ function updateDashboard() {
 // ========================================
 
 if (incomeForm) {
-    incomeForm.addEventListener("submit", async (event) => {
+    incomeForm.addEventListener("submit", async event => {
         event.preventDefault();
 
         const date = incomeDateInput.value;
         const amount = Number(incomeAmountInput.value);
         const note = incomeNoteInput.value.trim();
 
-        if (
-            !date ||
-            !Number.isFinite(amount) ||
-            amount <= 0
-        ) {
+        if (!date || !Number.isFinite(amount) || amount <= 0) {
             showToast(
                 "Enter a valid income date and amount.",
                 "error"
@@ -1161,11 +1321,7 @@ if (incomeForm) {
         }
 
         if (date > getTodayDate()) {
-            showToast(
-                "Future dates are not allowed.",
-                "error"
-            );
-
+            showToast("Future dates are not allowed.", "error");
             incomeDateInput.focus();
             return;
         }
@@ -1226,7 +1382,7 @@ if (incomeForm) {
 // ========================================
 
 if (expenseForm) {
-    expenseForm.addEventListener("submit", async (event) => {
+    expenseForm.addEventListener("submit", async event => {
         event.preventDefault();
 
         const date = expenseDateInput.value;
@@ -1234,11 +1390,7 @@ if (expenseForm) {
         const category = expenseCategoryInput.value;
         const note = expenseNoteInput.value.trim();
 
-        if (
-            !date ||
-            !Number.isFinite(amount) ||
-            amount <= 0
-        ) {
+        if (!date || !Number.isFinite(amount) || amount <= 0) {
             showToast(
                 "Enter a valid expense date and amount.",
                 "error"
@@ -1247,21 +1399,13 @@ if (expenseForm) {
         }
 
         if (date > getTodayDate()) {
-            showToast(
-                "Future dates are not allowed.",
-                "error"
-            );
-
+            showToast("Future dates are not allowed.", "error");
             expenseDateInput.focus();
             return;
         }
 
         if (!category) {
-            showToast(
-                "Select an expense category.",
-                "warning"
-            );
-
+            showToast("Select an expense category.", "warning");
             expenseCategoryInput.focus();
             return;
         }
@@ -1292,17 +1436,13 @@ if (expenseForm) {
             expenseForm.reset();
             setDefaultDates();
 
-            // Dashboard reload also updates Expense Breakdown.
             showToast(
                 `${formatCurrency(amount)} expense saved to database.`,
                 "success",
                 "Expense Added!"
             );
 
-            if (
-                getExpenses(getMonthlyTransactions()) >
-                MONTHLY_BUDGET
-            ) {
+            if (getExpenses(getMonthlyTransactions()) > MONTHLY_BUDGET) {
                 showToast(
                     "You have crossed your monthly spending limit.",
                     "warning",
@@ -1331,16 +1471,13 @@ if (expenseForm) {
 
 async function markIncomeReceived(id) {
     const item = transactions.find(
-        (transaction) => transaction.id === id
+        transaction => transaction.id === id
     );
 
     if (!item || item.type !== "income") return;
 
     if (item.status === "received") {
-        showToast(
-            "This income is already received.",
-            "info"
-        );
+        showToast("This income is already received.", "info");
         return;
     }
 
@@ -1386,7 +1523,6 @@ async function markIncomeReceived(id) {
 function openEditIncomeModal(item) {
     if (!item || item.type !== "income") return;
 
-    // Prevent opening more than one modal.
     if (document.querySelector(".edit-income-overlay")) return;
 
     const overlay = document.createElement("div");
@@ -1396,99 +1532,96 @@ function openEditIncomeModal(item) {
     modal.className = "budget-modal";
     modal.setAttribute("role", "dialog");
     modal.setAttribute("aria-modal", "true");
-    modal.setAttribute("aria-labelledby", "edit-income-heading");
 
-        const closeButton = document.createElement("button");
+    const closeButton = document.createElement("button");
     closeButton.type = "button";
     closeButton.className = "budget-modal-close";
     closeButton.textContent = "×";
-    closeButton.setAttribute("aria-label", "Close edit income popup");
 
     const heading = document.createElement("h2");
-    heading.id = "edit-income-heading";
     heading.textContent = "Edit Income";
 
     const description = document.createElement("p");
     description.className = "budget-modal-description";
-    description.textContent = "Update the details of this income transaction.";
+    description.textContent =
+        "Update the details of this income transaction.";
 
     const form = document.createElement("form");
 
     function addField(labelText, name, type, value) {
         const wrapper = document.createElement("div");
-        wrapper.className = "edit-income-field";
         wrapper.style.marginBottom = "14px";
 
         const label = document.createElement("label");
         label.className = "budget-input-label";
         label.textContent = labelText;
-        label.htmlFor = `edit-income-${name}`;
 
         const input = document.createElement("input");
         input.className = "budget-input";
-        input.id = `edit-income-${name}`;
-        input.name = name;
         input.type = type;
         input.value = value == null ? "" : String(value);
-        input.required = name === "date" || name === "amount" || name === "category";
+        input.required = true;
         input.style.width = "100%";
         input.style.boxSizing = "border-box";
 
         if (type === "number") {
             input.min = "0.01";
-            input.max = "99999999.99";
             input.step = "0.01";
         }
+
         if (type === "date") {
             input.max = getTodayDate();
         }
-        if (type === "text" && name === "category") {
-            input.maxLength = 100;
-        }
-        if (type === "text" && name === "note") {
-            input.maxLength = 255;
-        }
+
+        if (name === "category") input.maxLength = 100;
+        if (name === "note") input.maxLength = 255;
 
         wrapper.append(label, input);
         form.appendChild(wrapper);
+
         return input;
     }
 
-    const dateInput = addField("Income Date", "date", "date", item.date);
-    const amountInput = addField("Amount (₹)", "amount", "number", item.amount);
-    const categoryInput = addField("Category", "category", "text", item.category || "Salary");
-    const noteInput = addField("Note / Description", "note", "text", item.note || "");
+    const dateInput = addField(
+        "Income Date", "date", "date", item.date
+    );
 
-    const statusWrapper = document.createElement("div");
-    statusWrapper.style.marginBottom = "14px";
+    const amountInput = addField(
+        "Amount (₹)", "amount", "number", item.amount
+    );
+
+    const categoryInput = addField(
+        "Category", "category", "text", item.category || "Salary"
+    );
+
+    const noteInput = addField(
+        "Note / Description", "note", "text", item.note || ""
+    );
 
     const statusLabel = document.createElement("label");
     statusLabel.className = "budget-input-label";
-    statusLabel.htmlFor = "edit-income-status";
     statusLabel.textContent = "Payment Status";
 
     const statusInput = document.createElement("select");
     statusInput.className = "budget-input";
-    statusInput.id = "edit-income-status";
     statusInput.style.width = "100%";
-    statusInput.style.boxSizing = "border-box";
 
     [
         { value: "received", label: "✓ Received" },
         { value: "pending", label: "Pending" }
-    ].forEach((entry) => {
+    ].forEach(entry => {
         const option = document.createElement("option");
         option.value = entry.value;
         option.textContent = entry.label;
         statusInput.appendChild(option);
     });
-    statusInput.value = item.status === "pending" ? "pending" : "received";
-    statusWrapper.append(statusLabel, statusInput);
-    form.appendChild(statusWrapper);
+
+    statusInput.value = item.status;
+
+    form.append(statusLabel, statusInput);
 
     const errorElement = document.createElement("p");
     errorElement.className = "budget-modal-error";
-    errorElement.setAttribute("role", "alert");
     errorElement.hidden = true;
 
     const actions = document.createElement("div");
@@ -1506,6 +1639,7 @@ function openEditIncomeModal(item) {
 
     actions.append(cancelButton, saveButton);
     form.append(errorElement, actions);
+
     modal.append(closeButton, heading, description, form);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
@@ -1521,12 +1655,14 @@ function openEditIncomeModal(item) {
 
     closeButton.addEventListener("click", closeModal);
     cancelButton.addEventListener("click", closeModal);
-    overlay.addEventListener("click", (event) => {
+
+    overlay.addEventListener("click", event => {
         if (event.target === overlay) closeModal();
     });
+
     document.addEventListener("keydown", handleKeydown);
 
-    form.addEventListener("submit", async (event) => {
+    form.addEventListener("submit", async event => {
         event.preventDefault();
 
         const date = dateInput.value;
@@ -1536,34 +1672,25 @@ function openEditIncomeModal(item) {
         const status = statusInput.value;
 
         if (!date || date > getTodayDate()) {
-            errorElement.textContent = "Choose a valid date that is not in the future.";
+            errorElement.textContent = "Choose a valid date.";
             errorElement.hidden = false;
-            dateInput.focus();
             return;
         }
-        if (!Number.isFinite(amount) || amount <= 0 || amount >= 100000000) {
-            errorElement.textContent = "Enter a valid amount greater than zero.";
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+            errorElement.textContent = "Enter a valid amount.";
             errorElement.hidden = false;
-            amountInput.focus();
             return;
         }
-        if (!category || category.length > 100) {
-            errorElement.textContent = "Enter a category (maximum 100 characters).";
+
+        if (!category) {
+            errorElement.textContent = "Enter a category.";
             errorElement.hidden = false;
-            categoryInput.focus();
-            return;
-        }
-        if (note.length > 255) {
-            errorElement.textContent = "Note must be 255 characters or fewer.";
-            errorElement.hidden = false;
-            noteInput.focus();
             return;
         }
 
         saveButton.disabled = true;
         cancelButton.disabled = true;
-        saveButton.textContent = "Saving...";
-        errorElement.hidden = true;
 
         try {
             await updateIncomeTransaction(item.id, {
@@ -1575,21 +1702,26 @@ function openEditIncomeModal(item) {
             });
 
             const loaded = await loadTransactions();
+
             if (!loaded) {
-                throw new Error("Income updated, but the dashboard could not refresh. Reload the page.");
+                throw new Error("Could not refresh dashboard.");
             }
 
             closeModal();
-            showToast("Income updated successfully!", "success", "Income Updated!");
+
+            showToast(
+                "Income updated successfully!",
+                "success",
+                "Income Updated!"
+            );
 
         } catch (error) {
-            console.error("Editing income failed:", error);
-            errorElement.textContent = error.message || "Could not update income.";
+            errorElement.textContent = error.message;
             errorElement.hidden = false;
+
         } finally {
             saveButton.disabled = false;
             cancelButton.disabled = false;
-            saveButton.textContent = "Save Changes";
         }
     });
 
@@ -1597,25 +1729,71 @@ function openEditIncomeModal(item) {
 }
 
 // ========================================
+// LEAVE MANAGEMENT
+// ========================================
+
+if (leaveForm) {
+    leaveForm.addEventListener("submit", async event => {
+        event.preventDefault();
+
+        const leaveData = {
+            leave_date: $("#leave-date")?.value,
+            leave_type: $("#leave-type")?.value,
+            leave_reason: $("#leave-reason")?.value.trim() || ""
+        };
+
+        if (!leaveData.leave_date || !leaveData.leave_type) {
+            showToast(
+                "Leave date and leave type are required.",
+                "error"
+            );
+            return;
+        }
+
+        try {
+            await apiRequest("/leaves", {
+                method: "POST",
+                body: JSON.stringify(leaveData)
+            });
+
+            leaveForm.reset();
+
+            showToast(
+                "Leave saved successfully!",
+                "success",
+                "Leave Saved!"
+            );
+
+        } catch (error) {
+            console.error("Leave saving failed:", error);
+
+            showToast(error.message, "error");
+        }
+    });
+}
+
+// ========================================
 // DEFAULT DATES
 // ========================================
 
 function setDefaultDates() {
+    const today = getTodayDate();
+
     if (incomeDateInput && !incomeDateInput.value) {
-        incomeDateInput.value = getTodayDate();
+        incomeDateInput.value = today;
     }
 
     if (expenseDateInput && !expenseDateInput.value) {
-        expenseDateInput.value = getTodayDate();
+        expenseDateInput.value = today;
     }
 
-    if (incomeDateInput) {
-        incomeDateInput.max = getTodayDate();
+    if (bankTransferDateInput && !bankTransferDateInput.value) {
+        bankTransferDateInput.value = today;
     }
 
-    if (expenseDateInput) {
-        expenseDateInput.max = getTodayDate();
-    }
+    if (incomeDateInput) incomeDateInput.max = today;
+    if (expenseDateInput) expenseDateInput.max = today;
+    if (bankTransferDateInput) bankTransferDateInput.max = today;
 }
 
 // ========================================
@@ -1627,9 +1805,9 @@ function setupNavigation() {
         ".sidebar .nav-link[href^='#']"
     );
 
-    links.forEach((link) => {
+    links.forEach(link => {
         link.addEventListener("click", () => {
-            links.forEach((item) =>
+            links.forEach(item =>
                 item.classList.remove("active")
             );
 
@@ -1639,8 +1817,8 @@ function setupNavigation() {
 
     document.querySelectorAll(
         ".action-button[href^='#']"
-    ).forEach((link) => {
-        link.addEventListener("click", (event) => {
+    ).forEach(link => {
+        link.addEventListener("click", event => {
             const target = document.querySelector(
                 link.getAttribute("href")
             );
@@ -1678,10 +1856,6 @@ function openBudgetModal() {
     closeButton.type = "button";
     closeButton.className = "budget-modal-close";
     closeButton.textContent = "×";
-    closeButton.setAttribute(
-        "aria-label",
-        "Close budget popup"
-    );
 
     const icon = document.createElement("div");
     icon.className = "budget-modal-icon";
@@ -1713,7 +1887,6 @@ function openBudgetModal() {
 
     const label = document.createElement("label");
     label.className = "budget-input-label";
-    label.htmlFor = "budget-amount-input";
     label.textContent = "New budget amount";
 
     const wrapper = document.createElement("div");
@@ -1725,7 +1898,6 @@ function openBudgetModal() {
 
     const input = document.createElement("input");
     input.className = "budget-input";
-    input.id = "budget-amount-input";
     input.type = "number";
     input.min = "0.01";
     input.step = "0.01";
@@ -1741,7 +1913,6 @@ function openBudgetModal() {
 
     const errorElement = document.createElement("p");
     errorElement.className = "budget-modal-error";
-    errorElement.setAttribute("role", "alert");
     errorElement.hidden = true;
 
     const actions = document.createElement("div");
@@ -1759,13 +1930,7 @@ function openBudgetModal() {
 
     actions.append(cancel, save);
 
-    form.append(
-        label,
-        wrapper,
-        hint,
-        errorElement,
-        actions
-    );
+    form.append(label, wrapper, hint, errorElement, actions);
 
     modal.append(
         closeButton,
@@ -1782,33 +1947,28 @@ function openBudgetModal() {
     function closeModal() {
         document.removeEventListener("keydown", onKeydown);
         overlay.remove();
-
         budgetButton?.focus({ preventScroll: true });
     }
 
     function onKeydown(event) {
-        if (event.key === "Escape") {
-            closeModal();
-        }
+        if (event.key === "Escape") closeModal();
     }
 
     closeButton.addEventListener("click", closeModal);
     cancel.addEventListener("click", closeModal);
 
-    overlay.addEventListener("click", (event) => {
-        if (event.target === overlay) {
-            closeModal();
-        }
+    overlay.addEventListener("click", event => {
+        if (event.target === overlay) closeModal();
     });
 
-    form.addEventListener("submit", async (event) => {
+    form.addEventListener("submit", async event => {
         event.preventDefault();
 
         const raw = input.value.trim();
         const amount = Number(raw);
 
         if (
-            raw === "" ||
+            !raw ||
             !Number.isFinite(amount) ||
             amount <= 0 ||
             amount >= 100000000
@@ -1818,7 +1978,6 @@ function openBudgetModal() {
 
             errorElement.hidden = false;
             input.focus();
-
             return;
         }
 
@@ -1837,11 +1996,6 @@ function openBudgetModal() {
             );
 
         } catch (error) {
-            console.error(
-                "Saving monthly budget failed:",
-                error
-            );
-
             errorElement.textContent =
                 `Budget was not saved: ${error.message}`;
 
@@ -1858,7 +2012,7 @@ function openBudgetModal() {
 }
 
 if (budgetButton) {
-    budgetButton.addEventListener("click", (event) => {
+    budgetButton.addEventListener("click", event => {
         event.preventDefault();
         openBudgetModal();
     });
@@ -1887,7 +2041,6 @@ async function initializeApp() {
     setDefaultDates();
     setupNavigation();
 
-    // Show initial empty state immediately.
     updateMonthlySections();
 
     try {
@@ -1905,6 +2058,19 @@ async function initializeApp() {
 
     await loadTransactions();
 
+    try {
+        await loadBankTransfers();
+
+    } catch (error) {
+        console.error("Loading bank transfers failed:", error);
+
+        showToast(
+            `Could not load bank transfer history: ${error.message}`,
+            "error",
+            "Bank Transfer Error"
+        );
+    }
+
     console.log("My Money Tracker initialized.");
 }
 
@@ -1915,135 +2081,4 @@ if (document.readyState === "loading") {
     );
 } else {
     initializeApp();
-}
-
-
-
-// ========================================
-// LEAVE MANAGEMENT
-// ========================================
-
-const leaveForm = document.getElementById("leave-form");
-
-if (leaveForm) {
-
-    leaveForm.addEventListener("submit", async function (event) {
-
-        event.preventDefault();
-
-        const leaveData = {
-            leave_date: document.getElementById("leave-date").value,
-            leave_type: document.getElementById("leave-type").value,
-            leave_reason: document.getElementById("leave-reason").value.trim()
-        };
-
-        try {
-
-            const response = await fetch("/api/leaves", {
-                method: "POST",
-
-                headers: {
-                    "Content-Type": "application/json"
-                },
-
-                body: JSON.stringify(leaveData)
-            });
-
-            const responseText = await response.text();
-
-            console.log("Server Response:", responseText);
-
-            let result;
-
-            try {
-
-                result = JSON.parse(responseText);
-
-            } catch {
-
-                throw new Error(
-                    "Server returned HTML instead of JSON. Check Flask API route."
-                );
-
-            }
-
-            if (!response.ok) {
-
-                throw new Error(
-                    result.error || "Leave saving failed"
-                );
-
-            }
-
-            // SUCCESS NOTIFICATION
-            showToast("Leave saved successfully!", "success");
-
-            leaveForm.reset();
-
-        } catch (error) {
-
-            console.error("Leave Error:", error);
-
-            // ERROR NOTIFICATION
-            showToast(error.message, "error");
-
-        }
-
-    });
-
-}
-
-
-// ========================================
-// CUSTOM TOAST NOTIFICATION
-// ========================================
-
-let toastTimeout;
-
-function showToast(message, type = "success") {
-
-    const toast = document.getElementById("custom-toast");
-    const title = document.getElementById("toast-title");
-    const messageElement = document.getElementById("toast-message");
-    const icon = document.getElementById("toast-icon");
-
-    if (!toast) return;
-
-    clearTimeout(toastTimeout);
-
-    toast.classList.remove("show", "error");
-
-    if (type === "error") {
-
-        toast.classList.add("error");
-
-        title.textContent = "Error!";
-        icon.innerHTML = '<i class="bi bi-exclamation-lg"></i>';
-
-    } else {
-
-        title.textContent = "Success!";
-        icon.innerHTML = '<i class="bi bi-check-lg"></i>';
-
-    }
-
-    messageElement.textContent = message;
-
-    void toast.offsetWidth;
-
-    toast.classList.add("show");
-
-    toastTimeout = setTimeout(() => {
-        hideToast();
-    }, 3500);
-}
-
-function hideToast() {
-
-    const toast = document.getElementById("custom-toast");
-
-    if (toast) {
-        toast.classList.remove("show");
-    }
-
 }
