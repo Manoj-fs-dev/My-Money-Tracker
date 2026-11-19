@@ -2295,3 +2295,19 @@ if (document.readyState === "loading") {
 } else {
     initializeApp();
 }
+
+
+
+
+
+
+// TEST TOAST POPUP
+document.addEventListener("DOMContentLoaded", () => {
+    setTimeout(() => {
+        showToast(
+            "Toast notification working!",
+            "success",
+            "Test Successful!"
+        );
+    }, 1000);
+});
