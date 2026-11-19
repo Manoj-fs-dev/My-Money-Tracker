@@ -701,6 +701,142 @@ def mark_income_received(transaction_id):
 
 
 
+
+# ========================================
+# BANK TRANSFER - SAVE
+# ========================================
+
+@app.route("/api/bank-transfers", methods=["POST"])
+def add_bank_transfer():
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    try:
+        amount_value = data.get("amount")
+
+        if isinstance(amount_value, bool) or amount_value is None:
+            raise InvalidOperation
+
+        amount = Decimal(str(amount_value))
+
+        if (
+            not amount.is_finite()
+            or amount <= 0
+            or amount >= Decimal("100000000")
+        ):
+            raise InvalidOperation
+
+        amount = amount.quantize(Decimal("0.01"))
+
+    except (InvalidOperation, ValueError, TypeError):
+        return jsonify({"error": "Invalid amount"}), 400
+
+    transfer_date = data.get("transfer_date")
+    bank_name = data.get("bank_name")
+    note = data.get("note")
+
+    try:
+        parsed_date = date.fromisoformat(transfer_date)
+
+        if parsed_date.isoformat() != transfer_date:
+            raise ValueError
+
+        if parsed_date > date.today():
+            raise ValueError
+
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid transfer date"}), 400
+
+    if bank_name is not None:
+        if not isinstance(bank_name, str) or len(bank_name) > 100:
+            return jsonify({"error": "Invalid bank name"}), 400
+        bank_name = bank_name.strip() or None
+
+    if note is not None:
+        if not isinstance(note, str) or len(note) > 255:
+            return jsonify({"error": "Invalid note"}), 400
+        note = note.strip() or None
+
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            INSERT INTO bank_transfers
+            (amount, bank_name, note, transfer_date)
+            VALUES (%s, %s, %s, %s)
+        """, (amount, bank_name, note, parsed_date))
+
+        connection.commit()
+
+        return jsonify({
+            "message": "Bank transfer saved successfully",
+            "id": cursor.lastrowid,
+            "amount": float(amount)
+        }), 201
+
+    except Exception as error:
+        if connection is not None:
+            connection.rollback()
+        return db_error("Saving bank transfer", error)
+
+    finally:
+        close_db(connection, cursor)
+
+
+# ========================================
+# BANK TRANSFER - GET ALL
+# ========================================
+
+@app.route("/api/bank-transfers", methods=["GET"])
+def get_bank_transfers():
+
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT id, amount, bank_name, note,
+                   transfer_date, created_at
+            FROM bank_transfers
+            ORDER BY transfer_date DESC, id DESC
+        """)
+
+        rows = cursor.fetchall()
+
+        total = 0
+
+        for item in rows:
+            item["amount"] = float(item["amount"])
+            total += item["amount"]
+
+            item["transfer_date"] = item["transfer_date"].isoformat()
+
+            if item["created_at"]:
+                item["created_at"] = item["created_at"].isoformat()
+
+        return jsonify({
+            "transfers": rows,
+            "total_transferred": round(total, 2)
+        }), 200
+
+    except Exception as error:
+        return db_error("Fetching bank transfers", error)
+
+    finally:
+        close_db(connection, cursor)
+
+
+
 # ========================================
 # EDIT INCOME
 # ========================================
