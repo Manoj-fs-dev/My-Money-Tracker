@@ -3070,3 +3070,82 @@ select:-webkit-autofill {
     }
 
 }
+
+
+
+
+/* BANK TRANSFER */
+
+.bank-transfer-section,
+.bank-history-section,
+.bank-balance-card {
+    background: var(--card-bg, #151b2b);
+    padding: 22px;
+    margin: 20px 0;
+    border-radius: 15px;
+    border: 1px solid rgba(255,255,255,.1);
+}
+
+.bank-transfer-section h2,
+.bank-history-section h2,
+.bank-balance-card h3 {
+    margin-bottom: 18px;
+}
+
+#bank-transfer-form {
+    display: grid;
+    gap: 12px;
+}
+
+#bank-transfer-form input {
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #475569;
+    background: #0f172a;
+    color: white;
+    box-sizing: border-box;
+}
+
+#bank-transfer-form button {
+    padding: 13px;
+    border: none;
+    border-radius: 8px;
+    background: #10b981;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.bank-transfer-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 15px 0;
+    border-bottom: 1px solid rgba(255,255,255,.1);
+}
+
+.bank-transfer-details {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.bank-transfer-details span,
+.bank-transfer-details small {
+    color: #94a3b8;
+}
+
+.bank-transfer-amount {
+    color: #10b981;
+    white-space: nowrap;
+}
+
+#bank-total-transferred {
+    color: #10b981;
+}
+
+#bank-balance-calculation {
+    color: #60a5fa;
+}
