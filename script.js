@@ -713,6 +713,7 @@ function renderBankTransferHistory() {
     });
 }
 
+
 // ========================================
 // ADD BANK TRANSFER
 // ========================================
@@ -774,6 +775,7 @@ if (bankTransferForm) {
         if (submitButton) submitButton.disabled = true;
 
         try {
+            // SAVE TRANSFER TO DATABASE
             await createBankTransfer({
                 amount,
                 date,
@@ -781,6 +783,7 @@ if (bankTransferForm) {
                 note
             });
 
+            // RELOAD BANK TRANSFER HISTORY
             const loaded = await loadBankTransfers();
 
             if (!loaded) {
@@ -789,16 +792,18 @@ if (bankTransferForm) {
                 );
             }
 
+            // RESET FORM
             bankTransferForm.reset();
 
             if (bankTransferDateInput) {
                 bankTransferDateInput.value = getTodayDate();
             }
 
+            // SUCCESS POPUP
             showToast(
-                `${formatCurrency(amount)} transferred successfully.`,
+                `Your ${formatCurrency(amount)} is transferred to your bank account.`,
                 "success",
-                "Bank Transfer Saved!"
+                "Bank Transfer Successful!"
             );
 
         } catch (error) {
@@ -815,7 +820,6 @@ if (bankTransferForm) {
         }
     });
 }
-
 // ========================================
 // MONTHLY OVERVIEW
 // ========================================
