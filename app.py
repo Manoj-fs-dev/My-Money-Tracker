@@ -790,6 +790,7 @@ def add_bank_transfer():
         close_db(connection, cursor)
 
 
+
 # ========================================
 # BANK TRANSFER - GET ALL
 # ========================================
@@ -805,28 +806,50 @@ def get_bank_transfers():
         cursor = connection.cursor(dictionary=True)
 
         cursor.execute("""
-            SELECT id, amount, bank_name, note,
-                   transfer_date, created_at
+            SELECT
+                id,
+                amount,
+                bank_name,
+                note,
+                transfer_date,
+                created_at
             FROM bank_transfers
             ORDER BY transfer_date DESC, id DESC
         """)
 
         rows = cursor.fetchall()
 
-        total = 0
+        total_transferred = Decimal("0.00")
+        monthly_transferred = Decimal("0.00")
+
+        today = date.today()
+        current_month = today.strftime("%Y-%m")
 
         for item in rows:
-            item["amount"] = float(item["amount"])
-            total += item["amount"]
 
-            item["transfer_date"] = item["transfer_date"].isoformat()
+            amount = Decimal(str(item["amount"]))
+
+            total_transferred += amount
+
+            item["amount"] = float(amount)
+
+            if item["transfer_date"]:
+                item["transfer_date"] = (
+                    item["transfer_date"].isoformat()
+                )
+
+                if item["transfer_date"].startswith(current_month):
+                    monthly_transferred += amount
 
             if item["created_at"]:
-                item["created_at"] = item["created_at"].isoformat()
+                item["created_at"] = (
+                    item["created_at"].isoformat()
+                )
 
         return jsonify({
             "transfers": rows,
-            "total_transferred": round(total, 2)
+            "total_transferred": float(total_transferred),
+            "monthly_transferred": float(monthly_transferred)
         }), 200
 
     except Exception as error:
@@ -834,7 +857,6 @@ def get_bank_transfers():
 
     finally:
         close_db(connection, cursor)
-
 
 
 # ========================================
