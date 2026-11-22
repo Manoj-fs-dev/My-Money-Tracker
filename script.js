@@ -40,7 +40,6 @@ const currentDateElement = $("#current-date");
 // Forms
 const incomeForm = $("#income-form");
 const expenseForm = $("#expense-form");
-const transferForm = $("#transfer-form");
 
 const incomeDateInput = $("#income-date");
 const incomeAmountInput = $("#income-amount");
@@ -50,11 +49,6 @@ const expenseDateInput = $("#expense-date");
 const expenseAmountInput = $("#expense-amount");
 const expenseCategoryInput = $("#expense-category");
 const expenseNoteInput = $("#expense-note");
-
-const transferDateInput = $("#transfer-date");
-const transferAmountInput = $("#transfer-amount");
-const transferNoteInput = $("#transfer-note");
-const totalTransfersElement = $("#total-transfers");
 
 // Actual containers in your index.html
 const monthlyOverviewContainer = $("#monthly-overview-data");
@@ -146,23 +140,25 @@ async function apiRequest(endpoint, options = {}) {
 }
 
 function normalizeTransaction(item) {
-    const category = item.category || (
-        item.type === "income" ? "Salary" : "Other"
-    );
-    const isTransfer =
-        item.type === "transfer" ||
-        String(category).trim().toLowerCase() === "bank transfer";
-
     return {
         id: Number(item.id),
-        type: isTransfer ? "transfer" : item.type,
+        type: item.type,
         amount: Number(item.amount),
-        category,
+        category: item.category || (
+            item.type === "income" ? "Salary" : "Other"
+        ),
         note: item.note || "",
         date: String(
             item.date || item.transaction_date || ""
         ).slice(0, 10),
         status: item.status || "received",
+        received_amount: Number(item.received_amount ?? (
+            item.status === "received" ? item.amount : 0
+        )),
+        remaining_amount: Number(item.remaining_amount ?? (
+            item.status === "pending" ? item.amount : 0
+        )),
+        payments: Array.isArray(item.payments) ? item.payments : [],
         created_at: item.created_at || null
     };
 }
@@ -224,6 +220,17 @@ async function createTransaction(transaction) {
 async function receiveTransaction(id) {
     return apiRequest(`/transactions/${id}/receive`, {
         method: "PATCH"
+    });
+}
+
+async function addIncomePayment(id, payment) {
+    return apiRequest(`/transactions/${id}/payments`, {
+        method: "POST",
+        body: JSON.stringify({
+            amount: payment.amount,
+            payment_date: payment.payment_date,
+            note: payment.note || ""
+        })
     });
 }
 
@@ -547,36 +554,19 @@ function getMonthlyTransactions() {
 
 function getReceivedIncome(list) {
     return list
-        .filter((item) =>
-            item.type === "income" &&
-            item.status === "received"
-        )
-        .reduce((sum, item) => sum + item.amount, 0);
+        .filter((item) => item.type === "income")
+        .reduce((sum, item) => sum + Number(item.received_amount || 0), 0);
 }
 
 function getPendingIncome(list) {
     return list
-        .filter((item) =>
-            item.type === "income" &&
-            item.status === "pending"
-        )
-        .reduce((sum, item) => sum + item.amount, 0);
-}
-
-function isBankTransfer(item) {
-    return item.type === "transfer" ||
-        String(item.category || "").trim().toLowerCase() === "bank transfer";
-}
-
-function getTransfers(list) {
-    return list
-        .filter(isBankTransfer)
-        .reduce((sum, item) => sum + item.amount, 0);
+        .filter((item) => item.type === "income" && item.status === "pending")
+        .reduce((sum, item) => sum + Number(item.remaining_amount ?? item.amount), 0);
 }
 
 function getExpenses(list) {
     return list
-        .filter((item) => item.type === "expense" && !isBankTransfer(item))
+        .filter((item) => item.type === "expense")
         .reduce((sum, item) => sum + item.amount, 0);
 }
 
@@ -606,8 +596,7 @@ function updateMonthlyOverview() {
 
     const pendingTotal = getPendingIncome(list);
     const expenses = getExpenses(list);
-    const transfers = getTransfers(list);
-    const balance = income - expenses - transfers;
+    const balance = income - expenses;
 
     container.replaceChildren();
 
@@ -695,9 +684,30 @@ function updateMonthlyOverview() {
 
                 const amount = document.createElement("strong");
                 amount.className = "pending-salary-amount";
-                amount.textContent = formatCurrency(item.amount);
+                amount.textContent = `Pending: ${formatCurrency(item.remaining_amount)}`;
 
-                row.append(details, amount);
+                const paymentInfo = document.createElement("span");
+                paymentInfo.textContent = `Received: ${formatCurrency(item.received_amount)} / ${formatCurrency(item.amount)}`;
+                paymentInfo.style.cssText = "display:block;font-size:.82rem;opacity:.8;margin-top:4px;";
+                details.appendChild(paymentInfo);
+
+                const receiveButton = document.createElement("button");
+                receiveButton.type = "button";
+                receiveButton.className = "neon-modal-btn neon-btn-success";
+                receiveButton.textContent = "+ Add Received";
+                receiveButton.style.cssText = "margin-top:8px;min-height:32px;padding:7px 10px;";
+                receiveButton.addEventListener("click", () => openPartialPaymentDialog(item));
+
+                const paymentHistory = document.createElement("button");
+                paymentHistory.type = "button";
+                paymentHistory.className = "neon-modal-btn";
+                paymentHistory.textContent = `History (${item.payments.length})`;
+                paymentHistory.style.cssText = "margin-top:8px;min-height:32px;padding:7px 10px;";
+                paymentHistory.addEventListener("click", () => showPaymentHistory(item));
+
+                const actions = document.createElement("div");
+                actions.append(receiveButton, paymentHistory);
+                row.append(details, amount, actions);
                 pendingSection.appendChild(row);
             });
     }
@@ -721,12 +731,11 @@ function updateExpenseBreakdown() {
         return;
     }
 
-        const month = getCurrentMonth();
+    const month = getCurrentMonth();
 
     const expenses = transactions.filter(
         (item) =>
             item.type === "expense" &&
-            !isBankTransfer(item) &&
             typeof item.date === "string" &&
             item.date.startsWith(month)
     );
@@ -860,7 +869,7 @@ function updatePreviousMonthPendingSalary() {
         .sort((a, b) => a.date.localeCompare(b.date));
 
     const totalPending = pendingItems.reduce(
-        (sum, item) => sum + item.amount,
+        (sum, item) => sum + Number(item.remaining_amount || 0),
         0
     );
 
@@ -918,21 +927,26 @@ function updatePreviousMonthPendingSalary() {
 
         const amount = document.createElement("strong");
         amount.className = "previous-pending-amount";
-        amount.textContent = formatCurrency(item.amount);
+        amount.textContent = `Remaining: ${formatCurrency(item.remaining_amount)}`;
+
+        const receivedInfo = document.createElement("span");
+        receivedInfo.textContent = `Received ${formatCurrency(item.received_amount)} of ${formatCurrency(item.amount)}`;
+        receivedInfo.style.cssText = "display:block;font-size:.8rem;opacity:.8;margin:4px 0;";
 
         const button = document.createElement("button");
-
         button.type = "button";
         button.className =
             "neon-modal-btn neon-btn-success previous-received-btn";
+        button.textContent = "+ Add Received";
+        button.addEventListener("click", () => openPartialPaymentDialog(item));
 
-        button.textContent = "✓ Received";
+        const historyButton = document.createElement("button");
+        historyButton.type = "button";
+        historyButton.className = "neon-modal-btn";
+        historyButton.textContent = `History (${item.payments.length})`;
+        historyButton.addEventListener("click", () => showPaymentHistory(item));
 
-        button.addEventListener("click", () => {
-            markIncomeReceived(item.id);
-        });
-
-        right.append(amount, button);
+        right.append(amount, receivedInfo, button, historyButton);
 
         row.append(details, right);
 
@@ -975,23 +989,22 @@ function renderTransactions() {
     list.forEach((item) => {
         const row = document.createElement("tr");
         const isIncome = item.type === "income";
-        const isTransfer = isBankTransfer(item);
 
         const dateCell = document.createElement("td");
         dateCell.textContent = formatDate(item.date);
 
         const typeCell = document.createElement("td");
-        typeCell.textContent = isIncome ? "Income" : (isTransfer ? "Bank Transfer" : "Expense");
+        typeCell.textContent = isIncome ? "Income" : "Expense";
 
         typeCell.style.color = isIncome
             ? "var(--green)"
-            : (isTransfer ? "var(--orange)" : "var(--red)");
+            : "var(--red)";
 
         const categoryCell = document.createElement("td");
 
         categoryCell.textContent = isIncome
             ? (item.note || "Daily Income")
-            : (isTransfer ? (item.note || "Own Bank Account") : (item.category || "Other"));
+            : (item.category || "Other");
 
         categoryCell.title = item.note || "";
 
@@ -1002,17 +1015,11 @@ function renderTransactions() {
 
         amountCell.style.color = isIncome
             ? "var(--green)"
-            : (isTransfer ? "var(--orange)" : "var(--red)");
+            : "var(--red)";
 
         const statusCell = document.createElement("td");
 
-        if (isTransfer) {
-            const badge = document.createElement("span");
-            badge.className = "badge rounded-pill text-bg-warning";
-            badge.textContent = "Transferred";
-            statusCell.appendChild(badge);
-
-        } else if (isIncome) {
+        if (isIncome) {
             const received = item.status === "received";
             const actions = document.createElement("div");
             actions.style.cssText = "display:flex;align-items:center;gap:7px;flex-wrap:wrap;";
@@ -1023,13 +1030,13 @@ function renderTransactions() {
                 ? "neon-modal-btn neon-btn-success"
                 : "neon-modal-btn neon-btn-warning";
             button.style.cssText = "min-height:32px;padding:7px 10px;white-space:nowrap;";
-            button.textContent = received ? "✓ Received" : "☐ Mark Received";
+            button.textContent = received ? "✓ Fully Received" : `+ Receive (${formatCurrency(item.remaining_amount)})`;
             button.disabled = received;
 
             if (received) {
-                button.title = "Income already received";
+                button.title = "Income already fully received";
             } else {
-                button.addEventListener("click", () => markIncomeReceived(item.id));
+                button.addEventListener("click", () => openPartialPaymentDialog(item));
             }
 
             const editButton = document.createElement("button");
@@ -1074,8 +1081,7 @@ function updateDashboard() {
 
     const income = getReceivedIncome(list);
     const expenses = getExpenses(list);
-    const transfers = getTransfers(list);
-    const balance = income - expenses - transfers;
+    const balance = income - expenses;
 
     if (totalIncomeElement) {
         totalIncomeElement.textContent = formatCurrency(income);
@@ -1090,11 +1096,6 @@ function updateDashboard() {
 
         availableBalanceElement.style.color =
             balance < 0 ? "var(--red)" : "var(--primary)";
-    }
-
-    if (totalTransfersElement) {
-        totalTransfersElement.textContent =
-            `Transferred to bank: ${formatCurrency(transfers)}`;
     }
 
     if (monthlyLimitElement) {
@@ -1363,86 +1364,236 @@ if (expenseForm) {
 }
 
 // ========================================
-// BANK TRANSFER TO OWN ACCOUNT
-// Stored as an expense with a dedicated category so the
-// existing MySQL /transactions API can be reused safely.
-// Dashboard separates it from everyday expenses.
+// SALARY FULLY RECEIVED POPUP (15 SECONDS)
 // ========================================
 
-if (transferForm) {
-    transferForm.addEventListener("submit", async (event) => {
+function showSalaryCompletedPopup(item) {
+    const overlay = document.createElement("div");
+    overlay.className = "budget-modal-overlay partial-payment-overlay";
+    overlay.style.zIndex = "10050";
+
+    const modal = document.createElement("section");
+    modal.className = "budget-modal";
+    modal.setAttribute("role", "alertdialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.style.textAlign = "center";
+
+    const heading = document.createElement("h2");
+    heading.textContent = "🎉 Pending Salary Fully Received!";
+    heading.style.color = "var(--green, #21c997)";
+
+    const description = document.createElement("p");
+    description.className = "budget-modal-description";
+    description.textContent = "Your pending salary has been received in full.";
+
+    const details = document.createElement("div");
+    details.style.cssText = "display:grid;gap:12px;text-align:left;margin:18px 0;padding:16px;border:1px solid var(--border-color, rgba(255,255,255,.15));border-radius:12px;";
+
+    const addDetail = (labelText, valueText, highlight = false) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;";
+        const label = document.createElement("span");
+        label.textContent = labelText;
+        const value = document.createElement("strong");
+        value.textContent = valueText;
+        if (highlight) value.style.color = "var(--green, #21c997)";
+        row.append(label, value);
+        details.appendChild(row);
+    };
+
+    addDetail("Pending salary date", formatDate(item.date));
+    addDetail("Original pending amount", formatCurrency(item.amount));
+    addDetail("Total received", formatCurrency(item.received_amount), true);
+    addDetail("Remaining pending", formatCurrency(0), true);
+    addDetail("Status", "RECEIVED ✓", true);
+
+    const timer = document.createElement("p");
+    timer.style.cssText = "font-size:13px;opacity:.75;margin:8px 0 14px;";
+    timer.textContent = "This popup will close automatically in 15 seconds.";
+
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "neon-modal-btn neon-btn-success";
+    closeButton.textContent = "Done";
+
+    let timeoutId;
+    const closePopup = () => {
+        if (timeoutId) clearTimeout(timeoutId);
+        overlay.remove();
+    };
+
+    closeButton.addEventListener("click", closePopup);
+    overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) closePopup();
+    });
+
+    modal.append(heading, description, details, timer, closeButton);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    timeoutId = setTimeout(closePopup, 15000);
+}
+
+// ========================================
+// PARTIAL SALARY PAYMENT DIALOG + HISTORY
+// ========================================
+
+async function openPartialPaymentDialog(item) {
+    if (!item || item.type !== "income" || item.status === "received") return;
+
+    const overlay = document.createElement("div");
+    overlay.className = "budget-modal-overlay partial-payment-overlay";
+
+    const modal = document.createElement("section");
+    modal.className = "budget-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+
+    const heading = document.createElement("h2");
+    heading.textContent = "Update Received Salary";
+
+    const summary = document.createElement("p");
+    summary.className = "budget-modal-description";
+    summary.textContent = `Total: ${formatCurrency(item.amount)} | Already received: ${formatCurrency(item.received_amount)} | Remaining: ${formatCurrency(item.remaining_amount)}`;
+
+    const form = document.createElement("form");
+    form.style.cssText = "display:grid;gap:12px;";
+
+    function addInput(labelText, type, value, name) {
+        const wrapper = document.createElement("label");
+        wrapper.style.cssText = "display:grid;gap:6px;text-align:left;";
+        const label = document.createElement("span");
+        label.textContent = labelText;
+        const input = document.createElement("input");
+        input.type = type;
+        input.name = name;
+        input.value = value;
+        input.required = true;
+        input.className = "form-control";
+        if (type === "number") {
+            input.min = "0.01";
+            input.max = String(item.remaining_amount);
+            input.step = "0.01";
+            input.placeholder = "Enter received amount";
+        }
+        wrapper.append(label, input);
+        form.appendChild(wrapper);
+        return input;
+    }
+
+    const amountInput = addInput("Amount received (₹)", "number", "", "amount");
+    const dateInput = addInput("Received date", "date", getTodayDate(), "payment_date");
+    const noteInput = addInput("Note (optional)", "text", "", "note");
+    noteInput.required = false;
+    noteInput.maxLength = 255;
+
+    const actions = document.createElement("div");
+    actions.style.cssText = "display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;";
+
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "neon-modal-btn neon-btn-secondary";
+    cancelButton.textContent = "Cancel";
+    cancelButton.addEventListener("click", () => overlay.remove());
+
+    const saveButton = document.createElement("button");
+    saveButton.type = "submit";
+    saveButton.className = "neon-modal-btn neon-btn-success";
+    saveButton.textContent = "Save Received Amount";
+
+    actions.append(cancelButton, saveButton);
+    form.appendChild(actions);
+    modal.append(heading, summary, form);
+    overlay.appendChild(modal);
+    overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) overlay.remove();
+    });
+    document.body.appendChild(overlay);
+    amountInput.focus();
+
+    form.addEventListener("submit", async (event) => {
         event.preventDefault();
-
-        const date = transferDateInput.value;
-        const amount = Number(transferAmountInput.value);
-        const note = transferNoteInput.value.trim();
-
-        if (!date || !Number.isFinite(amount) || amount <= 0 || amount >= 100000000) {
-            showToast("Enter a valid transfer date and amount.", "error", "Invalid Transfer");
+        const amount = Number(amountInput.value);
+        const paymentDate = dateInput.value;
+        if (!Number.isFinite(amount) || amount <= 0 || amount > item.remaining_amount) {
+            showToast(`Enter an amount up to ${formatCurrency(item.remaining_amount)}.`, "error");
+            amountInput.focus();
+            return;
+        }
+        if (!paymentDate || paymentDate > getTodayDate()) {
+            showToast("Choose a valid received date (not a future date).", "error");
+            dateInput.focus();
             return;
         }
 
-        if (date > getTodayDate()) {
-            showToast("Future dates are not allowed.", "error", "Invalid Date");
-            transferDateInput.focus();
-            return;
-        }
-
-        const monthList = transactions.filter((item) => item.date.startsWith(date.slice(0, 7)));
-        const availableForMonth =
-            getReceivedIncome(monthList) - getExpenses(monthList) - getTransfers(monthList);
-
-        if (amount > availableForMonth) {
-            showToast(
-                `Available balance is ${formatCurrency(availableForMonth)}. You cannot transfer ${formatCurrency(amount)}.`,
-                "warning",
-                "Insufficient Balance"
-            );
-            transferAmountInput.focus();
-            return;
-        }
-
-        const submitButton = transferForm.querySelector('[type="submit"]');
-        if (submitButton) submitButton.disabled = true;
-
+        saveButton.disabled = true;
         try {
-            // The current backend accepts income/expense transaction types.
-            // Save as an expense with a unique category, then classify it
-            // separately as a transfer when loading dashboard records.
-            await createTransaction({
-                type: "expense",
-                date,
+            await addIncomePayment(item.id, {
                 amount,
-                category: "Bank Transfer",
-                note: note || "Transferred to own bank account",
-                status: "received"
+                payment_date: paymentDate,
+                note: noteInput.value.trim()
             });
-
+            overlay.remove();
             const loaded = await loadTransactions();
-            if (!loaded) {
-                throw new Error("Transfer saved, but dashboard could not refresh. Reload the page.");
+            if (!loaded) throw new Error("Payment saved, but the latest data could not be loaded.");
+            const refreshed = transactions.find((entry) => entry.id === item.id);
+            if (refreshed && refreshed.status === "received" && refreshed.remaining_amount === 0) {
+                showSalaryCompletedPopup(refreshed);
+            } else {
+                showToast(
+                    `Payment saved. Remaining pending: ${formatCurrency(refreshed?.remaining_amount || 0)}.`,
+                    "success"
+                );
             }
-
-            transferForm.reset();
-            setDefaultDates();
-
-            showToast(
-                `${formatCurrency(amount)} transferred successfully. Your available balance has been updated.`,
-                "success",
-                "Bank Transfer Successful!"
-            );
-
         } catch (error) {
-            console.error("Bank transfer failed:", error);
-            showToast(
-                `Transfer failed: ${error.message}`,
-                "error",
-                "Transfer Error"
-            );
-        } finally {
-            if (submitButton) submitButton.disabled = false;
+            saveButton.disabled = false;
+            showToast(error.message, "error");
         }
     });
+}
+
+function showPaymentHistory(item) {
+    const overlay = document.createElement("div");
+    overlay.className = "budget-modal-overlay partial-payment-overlay";
+    const modal = document.createElement("section");
+    modal.className = "budget-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+
+    const heading = document.createElement("h2");
+    heading.textContent = "Salary Payment History";
+    const summary = document.createElement("p");
+    summary.textContent = `${item.note || "Daily Salary"} — Total ${formatCurrency(item.amount)}, received ${formatCurrency(item.received_amount)}, pending ${formatCurrency(item.remaining_amount)}`;
+    const list = document.createElement("div");
+    list.style.cssText = "display:grid;gap:8px;margin:16px 0;";
+
+    if (!item.payments.length) {
+        const empty = document.createElement("p");
+        empty.textContent = "No partial payment history yet.";
+        list.appendChild(empty);
+    } else {
+        item.payments.forEach((payment, index) => {
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex;justify-content:space-between;gap:12px;padding:10px;border:1px solid var(--border-color, rgba(255,255,255,.12));border-radius:10px;";
+            const detail = document.createElement("span");
+            detail.textContent = `${index + 1}. ${formatDate(payment.payment_date)}${payment.note ? ` · ${payment.note}` : ""}`;
+            const amount = document.createElement("strong");
+            amount.textContent = formatCurrency(payment.amount);
+            row.append(detail, amount);
+            list.appendChild(row);
+        });
+    }
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "neon-modal-btn neon-btn-secondary";
+    close.textContent = "Close";
+    close.addEventListener("click", () => overlay.remove());
+    modal.append(heading, summary, list, close);
+    overlay.appendChild(modal);
+    overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) overlay.remove();
+    });
+    document.body.appendChild(overlay);
 }
 
 // ========================================
@@ -1518,7 +1669,7 @@ function openEditIncomeModal(item) {
     modal.setAttribute("aria-modal", "true");
     modal.setAttribute("aria-labelledby", "edit-income-heading");
 
-        const closeButton = document.createElement("button");
+    const closeButton = document.createElement("button");
     closeButton.type = "button";
     closeButton.className = "budget-modal-close";
     closeButton.textContent = "×";
@@ -1729,20 +1880,12 @@ function setDefaultDates() {
         expenseDateInput.value = getTodayDate();
     }
 
-    if (transferDateInput && !transferDateInput.value) {
-        transferDateInput.value = getTodayDate();
-    }
-
     if (incomeDateInput) {
         incomeDateInput.max = getTodayDate();
     }
 
     if (expenseDateInput) {
         expenseDateInput.max = getTodayDate();
-    }
-
-    if (transferDateInput) {
-        transferDateInput.max = getTodayDate();
     }
 }
 
