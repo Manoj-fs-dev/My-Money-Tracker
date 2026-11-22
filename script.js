@@ -152,13 +152,6 @@ function normalizeTransaction(item) {
             item.date || item.transaction_date || ""
         ).slice(0, 10),
         status: item.status || "received",
-        received_amount: Number(item.received_amount ?? (
-            item.status === "received" ? item.amount : 0
-        )),
-        remaining_amount: Number(item.remaining_amount ?? (
-            item.status === "pending" ? item.amount : 0
-        )),
-        payments: Array.isArray(item.payments) ? item.payments : [],
         created_at: item.created_at || null
     };
 }
@@ -220,17 +213,6 @@ async function createTransaction(transaction) {
 async function receiveTransaction(id) {
     return apiRequest(`/transactions/${id}/receive`, {
         method: "PATCH"
-    });
-}
-
-async function addIncomePayment(id, payment) {
-    return apiRequest(`/transactions/${id}/payments`, {
-        method: "POST",
-        body: JSON.stringify({
-            amount: payment.amount,
-            payment_date: payment.payment_date,
-            note: payment.note || ""
-        })
     });
 }
 
@@ -554,14 +536,20 @@ function getMonthlyTransactions() {
 
 function getReceivedIncome(list) {
     return list
-        .filter((item) => item.type === "income")
-        .reduce((sum, item) => sum + Number(item.received_amount || 0), 0);
+        .filter((item) =>
+            item.type === "income" &&
+            item.status === "received"
+        )
+        .reduce((sum, item) => sum + item.amount, 0);
 }
 
 function getPendingIncome(list) {
     return list
-        .filter((item) => item.type === "income" && item.status === "pending")
-        .reduce((sum, item) => sum + Number(item.remaining_amount ?? item.amount), 0);
+        .filter((item) =>
+            item.type === "income" &&
+            item.status === "pending"
+        )
+        .reduce((sum, item) => sum + item.amount, 0);
 }
 
 function getExpenses(list) {
@@ -684,30 +672,9 @@ function updateMonthlyOverview() {
 
                 const amount = document.createElement("strong");
                 amount.className = "pending-salary-amount";
-                amount.textContent = `Pending: ${formatCurrency(item.remaining_amount)}`;
+                amount.textContent = formatCurrency(item.amount);
 
-                const paymentInfo = document.createElement("span");
-                paymentInfo.textContent = `Received: ${formatCurrency(item.received_amount)} / ${formatCurrency(item.amount)}`;
-                paymentInfo.style.cssText = "display:block;font-size:.82rem;opacity:.8;margin-top:4px;";
-                details.appendChild(paymentInfo);
-
-                const receiveButton = document.createElement("button");
-                receiveButton.type = "button";
-                receiveButton.className = "neon-modal-btn neon-btn-success";
-                receiveButton.textContent = "+ Add Received";
-                receiveButton.style.cssText = "margin-top:8px;min-height:32px;padding:7px 10px;";
-                receiveButton.addEventListener("click", () => openPartialPaymentDialog(item));
-
-                const paymentHistory = document.createElement("button");
-                paymentHistory.type = "button";
-                paymentHistory.className = "neon-modal-btn";
-                paymentHistory.textContent = `History (${item.payments.length})`;
-                paymentHistory.style.cssText = "margin-top:8px;min-height:32px;padding:7px 10px;";
-                paymentHistory.addEventListener("click", () => showPaymentHistory(item));
-
-                const actions = document.createElement("div");
-                actions.append(receiveButton, paymentHistory);
-                row.append(details, amount, actions);
+                row.append(details, amount);
                 pendingSection.appendChild(row);
             });
     }
@@ -731,7 +698,7 @@ function updateExpenseBreakdown() {
         return;
     }
 
-    const month = getCurrentMonth();
+        const month = getCurrentMonth();
 
     const expenses = transactions.filter(
         (item) =>
@@ -869,7 +836,7 @@ function updatePreviousMonthPendingSalary() {
         .sort((a, b) => a.date.localeCompare(b.date));
 
     const totalPending = pendingItems.reduce(
-        (sum, item) => sum + Number(item.remaining_amount || 0),
+        (sum, item) => sum + item.amount,
         0
     );
 
@@ -927,26 +894,21 @@ function updatePreviousMonthPendingSalary() {
 
         const amount = document.createElement("strong");
         amount.className = "previous-pending-amount";
-        amount.textContent = `Remaining: ${formatCurrency(item.remaining_amount)}`;
-
-        const receivedInfo = document.createElement("span");
-        receivedInfo.textContent = `Received ${formatCurrency(item.received_amount)} of ${formatCurrency(item.amount)}`;
-        receivedInfo.style.cssText = "display:block;font-size:.8rem;opacity:.8;margin:4px 0;";
+        amount.textContent = formatCurrency(item.amount);
 
         const button = document.createElement("button");
+
         button.type = "button";
         button.className =
             "neon-modal-btn neon-btn-success previous-received-btn";
-        button.textContent = "+ Add Received";
-        button.addEventListener("click", () => openPartialPaymentDialog(item));
 
-        const historyButton = document.createElement("button");
-        historyButton.type = "button";
-        historyButton.className = "neon-modal-btn salary-history-btn";
-        historyButton.textContent = `History (${item.payments.length})`;
-        historyButton.addEventListener("click", () => showPaymentHistory(item));
+        button.textContent = "✓ Received";
 
-        right.append(amount, receivedInfo, button, historyButton);
+        button.addEventListener("click", () => {
+            markIncomeReceived(item.id);
+        });
+
+        right.append(amount, button);
 
         row.append(details, right);
 
@@ -1030,13 +992,13 @@ function renderTransactions() {
                 ? "neon-modal-btn neon-btn-success"
                 : "neon-modal-btn neon-btn-warning";
             button.style.cssText = "min-height:32px;padding:7px 10px;white-space:nowrap;";
-            button.textContent = received ? "✓ Fully Received" : `+ Receive (${formatCurrency(item.remaining_amount)})`;
+            button.textContent = received ? "✓ Received" : "☐ Mark Received";
             button.disabled = received;
 
             if (received) {
-                button.title = "Income already fully received";
+                button.title = "Income already received";
             } else {
-                button.addEventListener("click", () => openPartialPaymentDialog(item));
+                button.addEventListener("click", () => markIncomeReceived(item.id));
             }
 
             const editButton = document.createElement("button");
@@ -1364,239 +1326,6 @@ if (expenseForm) {
 }
 
 // ========================================
-// SALARY FULLY RECEIVED POPUP (15 SECONDS)
-// ========================================
-
-function showSalaryCompletedPopup(item) {
-    const overlay = document.createElement("div");
-    overlay.className = "budget-modal-overlay partial-payment-overlay";
-    overlay.style.zIndex = "10050";
-
-    const modal = document.createElement("section");
-    modal.className = "budget-modal";
-    modal.setAttribute("role", "alertdialog");
-    modal.setAttribute("aria-modal", "true");
-    modal.style.textAlign = "center";
-
-    const heading = document.createElement("h2");
-    heading.textContent = "🎉 Pending Salary Fully Received!";
-    heading.style.color = "var(--green, #21c997)";
-
-    const description = document.createElement("p");
-    description.className = "budget-modal-description";
-    description.textContent = "Your pending salary has been received in full.";
-
-    const details = document.createElement("div");
-    details.style.cssText = "display:grid;gap:12px;text-align:left;margin:18px 0;padding:16px;border:1px solid var(--border-color, rgba(255,255,255,.15));border-radius:12px;";
-
-    const addDetail = (labelText, valueText, highlight = false) => {
-        const row = document.createElement("div");
-        row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;";
-        const label = document.createElement("span");
-        label.textContent = labelText;
-        const value = document.createElement("strong");
-        value.textContent = valueText;
-        if (highlight) value.style.color = "var(--green, #21c997)";
-        row.append(label, value);
-        details.appendChild(row);
-    };
-
-    addDetail("Pending salary date", formatDate(item.date));
-    addDetail("Original pending amount", formatCurrency(item.amount));
-    addDetail("Total received", formatCurrency(item.received_amount), true);
-    addDetail("Remaining pending", formatCurrency(0), true);
-    addDetail("Status", "RECEIVED ✓", true);
-
-    const timer = document.createElement("p");
-    timer.style.cssText = "font-size:13px;opacity:.75;margin:8px 0 14px;";
-    timer.textContent = "This popup will close automatically in 15 seconds.";
-
-    const closeButton = document.createElement("button");
-    closeButton.type = "button";
-    closeButton.className = "neon-modal-btn neon-btn-success";
-    closeButton.textContent = "Done";
-
-    let timeoutId;
-    const closePopup = () => {
-        if (timeoutId) clearTimeout(timeoutId);
-        overlay.remove();
-    };
-
-    closeButton.addEventListener("click", closePopup);
-    overlay.addEventListener("click", (event) => {
-        if (event.target === overlay) closePopup();
-    });
-
-    modal.append(heading, description, details, timer, closeButton);
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
-    timeoutId = setTimeout(closePopup, 15000);
-}
-
-// ========================================
-// PARTIAL SALARY PAYMENT DIALOG + HISTORY
-// ========================================
-
-async function openPartialPaymentDialog(item) {
-    if (!item || item.type !== "income" || item.status === "received") return;
-
-    const overlay = document.createElement("div");
-    overlay.className = "budget-modal-overlay partial-payment-overlay";
-
-    const modal = document.createElement("section");
-    modal.className = "budget-modal";
-    modal.setAttribute("role", "dialog");
-    modal.setAttribute("aria-modal", "true");
-
-    const heading = document.createElement("h2");
-    heading.textContent = "Update Received Salary";
-
-    const summary = document.createElement("p");
-    summary.className = "budget-modal-description";
-    summary.textContent = `Total: ${formatCurrency(item.amount)} | Already received: ${formatCurrency(item.received_amount)} | Remaining: ${formatCurrency(item.remaining_amount)}`;
-
-    const form = document.createElement("form");
-    form.style.cssText = "display:grid;gap:12px;";
-
-    function addInput(labelText, type, value, name) {
-        const wrapper = document.createElement("label");
-        wrapper.style.cssText = "display:grid;gap:6px;text-align:left;";
-        const label = document.createElement("span");
-        label.textContent = labelText;
-        const input = document.createElement("input");
-        input.type = type;
-        input.name = name;
-        input.value = value;
-        input.required = true;
-        input.className = "form-control";
-        if (type === "number") {
-            input.min = "0.01";
-            input.max = String(item.remaining_amount);
-            input.step = "0.01";
-            input.placeholder = "Enter received amount";
-        }
-        wrapper.append(label, input);
-        form.appendChild(wrapper);
-        return input;
-    }
-
-    const amountInput = addInput("Amount received (₹)", "number", "", "amount");
-    const dateInput = addInput("Received date", "date", getTodayDate(), "payment_date");
-    const noteInput = addInput("Note (optional)", "text", "", "note");
-    noteInput.required = false;
-    noteInput.maxLength = 255;
-
-    const actions = document.createElement("div");
-    actions.style.cssText = "display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;";
-
-    const cancelButton = document.createElement("button");
-    cancelButton.type = "button";
-    cancelButton.className = "neon-modal-btn neon-btn-secondary";
-    cancelButton.textContent = "Cancel";
-    cancelButton.addEventListener("click", () => overlay.remove());
-
-    const saveButton = document.createElement("button");
-    saveButton.type = "submit";
-    saveButton.className = "neon-modal-btn neon-btn-success";
-    saveButton.textContent = "Save Received Amount";
-
-    actions.append(cancelButton, saveButton);
-    form.appendChild(actions);
-    modal.append(heading, summary, form);
-    overlay.appendChild(modal);
-    overlay.addEventListener("click", (event) => {
-        if (event.target === overlay) overlay.remove();
-    });
-    document.body.appendChild(overlay);
-    amountInput.focus();
-
-    form.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const amount = Number(amountInput.value);
-        const paymentDate = dateInput.value;
-        if (!Number.isFinite(amount) || amount <= 0 || amount > item.remaining_amount) {
-            showToast(`Enter an amount up to ${formatCurrency(item.remaining_amount)}.`, "error");
-            amountInput.focus();
-            return;
-        }
-        if (!paymentDate || paymentDate > getTodayDate()) {
-            showToast("Choose a valid received date (not a future date).", "error");
-            dateInput.focus();
-            return;
-        }
-
-        saveButton.disabled = true;
-        try {
-            await addIncomePayment(item.id, {
-                amount,
-                payment_date: paymentDate,
-                note: noteInput.value.trim()
-            });
-            overlay.remove();
-            const loaded = await loadTransactions();
-            if (!loaded) throw new Error("Payment saved, but the latest data could not be loaded.");
-            const refreshed = transactions.find((entry) => entry.id === item.id);
-            if (refreshed && refreshed.status === "received" && refreshed.remaining_amount === 0) {
-                showSalaryCompletedPopup(refreshed);
-            } else {
-                showToast(
-                    `Payment saved. Remaining pending: ${formatCurrency(refreshed?.remaining_amount || 0)}.`,
-                    "success"
-                );
-            }
-        } catch (error) {
-            saveButton.disabled = false;
-            showToast(error.message, "error");
-        }
-    });
-}
-
-function showPaymentHistory(item) {
-    const overlay = document.createElement("div");
-    overlay.className = "budget-modal-overlay partial-payment-overlay";
-    const modal = document.createElement("section");
-    modal.className = "budget-modal";
-    modal.setAttribute("role", "dialog");
-    modal.setAttribute("aria-modal", "true");
-
-    const heading = document.createElement("h2");
-    heading.textContent = "Salary Payment History";
-    const summary = document.createElement("p");
-    summary.textContent = `${item.note || "Daily Salary"} — Total ${formatCurrency(item.amount)}, received ${formatCurrency(item.received_amount)}, pending ${formatCurrency(item.remaining_amount)}`;
-    const list = document.createElement("div");
-    list.style.cssText = "display:grid;gap:8px;margin:16px 0;";
-
-    if (!item.payments.length) {
-        const empty = document.createElement("p");
-        empty.textContent = "No partial payment history yet.";
-        list.appendChild(empty);
-    } else {
-        item.payments.forEach((payment, index) => {
-            const row = document.createElement("div");
-            row.style.cssText = "display:flex;justify-content:space-between;gap:12px;padding:10px;border:1px solid var(--border-color, rgba(255,255,255,.12));border-radius:10px;";
-            const detail = document.createElement("span");
-            detail.textContent = `${index + 1}. ${formatDate(payment.payment_date)}${payment.note ? ` · ${payment.note}` : ""}`;
-            const amount = document.createElement("strong");
-            amount.textContent = formatCurrency(payment.amount);
-            row.append(detail, amount);
-            list.appendChild(row);
-        });
-    }
-
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "neon-modal-btn neon-btn-secondary";
-    close.textContent = "Close";
-    close.addEventListener("click", () => overlay.remove());
-    modal.append(heading, summary, list, close);
-    overlay.appendChild(modal);
-    overlay.addEventListener("click", (event) => {
-        if (event.target === overlay) overlay.remove();
-    });
-    document.body.appendChild(overlay);
-}
-
-// ========================================
 // MARK INCOME AS RECEIVED
 // ========================================
 
@@ -1669,7 +1398,7 @@ function openEditIncomeModal(item) {
     modal.setAttribute("aria-modal", "true");
     modal.setAttribute("aria-labelledby", "edit-income-heading");
 
-    const closeButton = document.createElement("button");
+        const closeButton = document.createElement("button");
     closeButton.type = "button";
     closeButton.className = "budget-modal-close";
     closeButton.textContent = "×";
