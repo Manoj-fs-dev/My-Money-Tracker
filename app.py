@@ -10,6 +10,7 @@ import calendar
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from dotenv import load_dotenv
 
 
 # ========================================
@@ -26,14 +27,16 @@ logging.basicConfig(level=logging.INFO)
 
 
 # ========================================
-# MYSQL CONFIGURATION
+# MYSQL CONFIGURATION - ENVIRONMENT VARIABLES
 # ========================================
 
-DB_HOST = os.environ.get("DB_HOST")
-DB_PORT = int(os.environ.get("DB_PORT", "4000"))
-DB_USER = os.environ.get("DB_USER")
-DB_PASSWORD = os.environ.get("DB_PASSWORD")
-DB_NAME = os.environ.get("DB_NAME", "money_tracker")
+load_dotenv()
+
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = int(os.getenv("DB_PORT", "3306"))
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_NAME = os.getenv("DB_NAME")
 
 
 # ========================================
@@ -115,6 +118,7 @@ def db_error(operation, error):
         "error": "Database operation failed"
 
     }), 500
+
 
 # ========================================
 # MONTH END RECORD OPTIMIZATION
@@ -351,62 +355,82 @@ def get_transactions():
         cursor = connection.cursor(dictionary=True)
 
         cursor.execute("""
-
             SELECT
-
                 id,
-
                 type,
-
                 amount,
-
                 category,
-
                 note,
-
                 transaction_date,
-
                 status,
-
                 created_at
-
             FROM transactions
-
             ORDER BY
-
                 transaction_date DESC,
-
                 (type = 'month_end') ASC,
-
                 id DESC
-
         """)
 
         rows = cursor.fetchall()
 
+        # Fetch payment history in one query (avoids one query per income row).
+        cursor.execute("""
+            SELECT
+                id,
+                transaction_id,
+                amount,
+                payment_date,
+                note,
+                created_at
+            FROM income_payments
+            ORDER BY payment_date ASC, id ASC
+        """)
+        payment_rows = cursor.fetchall()
+
+        payments_by_income = {}
+        for payment in payment_rows:
+            income_id = int(payment["transaction_id"])
+            payment_amount = Decimal(str(payment["amount"]))
+            payments_by_income.setdefault(income_id, []).append({
+                "id": int(payment["id"]),
+                "amount": float(payment_amount),
+                "payment_date": payment["payment_date"].isoformat(),
+                "note": payment["note"] or "",
+                "created_at": payment["created_at"].isoformat()
+                    if payment["created_at"] else None
+            })
+
         for item in rows:
+            original_amount = Decimal(str(item["amount"] or 0))
+            item_payments = payments_by_income.get(int(item["id"]), [])
+            partial_total = sum(
+                (Decimal(str(payment["amount"])) for payment in item_payments),
+                Decimal("0.00")
+            )
 
-            if item["amount"] is not None:
+            # Old records already marked received remain fully received.
+            received_amount = (
+                original_amount if item["status"] == "received"
+                else min(partial_total, original_amount)
+            ) if item["type"] == "income" else Decimal("0.00")
 
-                item["amount"] = float(item["amount"])
+            remaining_amount = max(
+                original_amount - received_amount, Decimal("0.00")
+            ) if item["type"] == "income" else Decimal("0.00")
+
+            item["amount"] = float(original_amount)
+            item["received_amount"] = float(received_amount)
+            item["remaining_amount"] = float(remaining_amount)
+            item["payments"] = item_payments
 
             if item["transaction_date"] is not None:
-
-                item["date"] = item.pop(
-                    "transaction_date"
-                ).isoformat()
-
+                item["date"] = item.pop("transaction_date").isoformat()
             else:
-
                 item["date"] = None
-
                 item.pop("transaction_date", None)
 
             if item.get("created_at") is not None:
-
-                item["created_at"] = (
-                    item["created_at"].isoformat()
-                )
+                item["created_at"] = item["created_at"].isoformat()
 
         return jsonify(rows), 200
 
@@ -630,6 +654,133 @@ def add_transaction():
 
 
 # ========================================
+# ADD PARTIAL SALARY PAYMENT
+# ========================================
+
+@app.route(
+    "/api/transactions/<int:transaction_id>/payments",
+    methods=["POST"]
+)
+def add_income_payment(transaction_id):
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Valid JSON is required"}), 400
+
+    try:
+        raw_amount = data.get("amount")
+        if isinstance(raw_amount, bool) or raw_amount is None:
+            raise InvalidOperation
+        payment_amount = Decimal(str(raw_amount))
+        if (
+            not payment_amount.is_finite()
+            or payment_amount <= 0
+            or payment_amount >= Decimal("100000000")
+        ):
+            raise InvalidOperation
+        payment_amount = payment_amount.quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError, TypeError):
+        return jsonify({"error": "Enter a valid received amount"}), 400
+
+    payment_date_value = data.get("payment_date", date.today().isoformat())
+    try:
+        if not isinstance(payment_date_value, str):
+            raise ValueError
+        payment_date = date.fromisoformat(payment_date_value)
+        if payment_date.isoformat() != payment_date_value:
+            raise ValueError
+        if payment_date > date.today():
+            return jsonify({"error": "Future payment dates are not allowed"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"error": "Payment date must be YYYY-MM-DD"}), 400
+
+    note = data.get("note")
+    if note is not None:
+        if not isinstance(note, str) or len(note) > 255:
+            return jsonify({"error": "Payment note must be 255 characters or fewer"}), 400
+        note = note.strip() or None
+
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        # Lock the income row so two simultaneous payments cannot overpay it.
+        cursor.execute("""
+            SELECT id, amount, status
+            FROM transactions
+            WHERE id = %s AND type = 'income'
+            FOR UPDATE
+        """, (transaction_id,))
+        income = cursor.fetchone()
+
+        if not income:
+            connection.rollback()
+            return jsonify({"error": "Income transaction not found"}), 404
+
+        original_amount = Decimal(str(income["amount"]))
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(amount), 0) AS paid_total
+            FROM income_payments
+            WHERE transaction_id = %s
+        """, (transaction_id,))
+        paid_total = Decimal(str(cursor.fetchone()["paid_total"]))
+
+        # Legacy fully-received rows do not need another payment entry.
+        if income["status"] == "received":
+            connection.rollback()
+            return jsonify({
+                "error": "This salary is already fully received",
+                "remaining_amount": 0.0
+            }), 400
+
+        remaining = max(original_amount - paid_total, Decimal("0.00"))
+        if payment_amount > remaining:
+            connection.rollback()
+            return jsonify({
+                "error": "Received amount cannot exceed the remaining pending salary",
+                "remaining_amount": float(remaining)
+            }), 400
+
+        cursor.execute("""
+            INSERT INTO income_payments
+                (transaction_id, amount, payment_date, note)
+            VALUES (%s, %s, %s, %s)
+        """, (transaction_id, payment_amount, payment_date, note))
+
+        new_paid_total = paid_total + payment_amount
+        new_remaining = max(original_amount - new_paid_total, Decimal("0.00"))
+        new_status = "received" if new_remaining == 0 else "pending"
+
+        if new_status == "received":
+            cursor.execute("""
+                UPDATE transactions
+                SET status = 'received'
+                WHERE id = %s AND type = 'income'
+            """, (transaction_id,))
+
+        connection.commit()
+
+        return jsonify({
+            "message": "Salary payment saved successfully",
+            "id": transaction_id,
+            "payment_amount": float(payment_amount),
+            "received_amount": float(new_paid_total),
+            "remaining_amount": float(new_remaining),
+            "status": new_status
+        }), 201
+
+    except Exception as error:
+        if connection is not None:
+            connection.rollback()
+        return db_error("Saving partial salary payment", error)
+    finally:
+        close_db(connection, cursor)
+
+
+# ========================================
 # MARK PENDING INCOME AS RECEIVED
 # ========================================
 
@@ -643,59 +794,64 @@ def mark_income_received(transaction_id):
     cursor = None
 
     try:
-
         connection = get_db_connection()
-
-        cursor = connection.cursor()
+        cursor = connection.cursor(dictionary=True)
 
         cursor.execute("""
+            SELECT id, amount, status
+            FROM transactions
+            WHERE id = %s AND type = 'income'
+            FOR UPDATE
+        """, (transaction_id,))
+        income = cursor.fetchone()
 
+        if not income:
+            connection.rollback()
+            return jsonify({"error": "Income not found"}), 404
+
+        if income["status"] == "received":
+            connection.rollback()
+            return jsonify({"error": "Income is already received"}), 400
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(amount), 0) AS paid_total
+            FROM income_payments
+            WHERE transaction_id = %s
+        """, (transaction_id,))
+        paid_total = Decimal(str(cursor.fetchone()["paid_total"]))
+        remaining = max(
+            Decimal(str(income["amount"])) - paid_total,
+            Decimal("0.00")
+        )
+
+        if remaining > 0:
+            cursor.execute("""
+                INSERT INTO income_payments
+                    (transaction_id, amount, payment_date, note)
+                VALUES (%s, %s, %s, %s)
+            """, (transaction_id, remaining, date.today(), "Marked fully received"))
+
+        cursor.execute("""
             UPDATE transactions
-
             SET status = 'received'
-
-            WHERE id = %s
-
-              AND type = 'income'
-
-              AND status = 'pending'
-
+            WHERE id = %s AND type = 'income'
         """, (transaction_id,))
 
-        if cursor.rowcount == 0:
-
-            connection.rollback()
-
-            return jsonify({
-
-                "error": "Pending income not found"
-
-            }), 404
-
         connection.commit()
-
         return jsonify({
-
-            "message": "Income marked as received",
-
+            "message": "Remaining salary marked as received",
             "id": transaction_id,
-
+            "received_amount": float(remaining),
             "status": "received"
-
         }), 200
 
     except Exception as error:
-
         if connection is not None:
-
             connection.rollback()
-
         return db_error("Updating income", error)
 
     finally:
-
         close_db(connection, cursor)
-
 
 
 
@@ -784,7 +940,14 @@ def add_bank_transfer():
                 COALESCE(SUM(
                     CASE
                         WHEN type = 'income' AND status = 'received'
-                        THEN amount ELSE 0
+                            THEN amount
+                        WHEN type = 'income'
+                            THEN COALESCE((
+                                SELECT SUM(ip.amount)
+                                FROM income_payments ip
+                                WHERE ip.transaction_id = transactions.id
+                            ), 0)
+                        ELSE 0
                     END
                 ), 0) AS received_income,
                 COALESCE(SUM(
@@ -916,7 +1079,14 @@ def get_bank_transfers():
                 COALESCE(SUM(
                     CASE
                         WHEN type = 'income' AND status = 'received'
-                        THEN amount ELSE 0
+                            THEN amount
+                        WHEN type = 'income'
+                            THEN COALESCE((
+                                SELECT SUM(ip.amount)
+                                FROM income_payments ip
+                                WHERE ip.transaction_id = transactions.id
+                            ), 0)
+                        ELSE 0
                     END
                 ), 0) AS received_income,
                 COALESCE(SUM(
@@ -1029,6 +1199,37 @@ def edit_income(transaction_id):
     try:
         connection = get_db_connection()
         cursor = connection.cursor()
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(amount), 0)
+            FROM income_payments
+            WHERE transaction_id = %s
+        """, (transaction_id,))
+        already_received = Decimal(str(cursor.fetchone()[0]))
+
+        if amount < already_received:
+            connection.rollback()
+            return jsonify({
+                "error": "Income amount cannot be less than the amount already received",
+                "already_received": float(already_received)
+            }), 400
+
+        if already_received > 0 and amount == already_received:
+            status = "received"
+
+        # If the user explicitly edits the income to Fully Received,
+        # record the outstanding amount so payment history stays complete.
+        if status == "received" and amount > already_received:
+            cursor.execute("""
+                INSERT INTO income_payments
+                    (transaction_id, amount, payment_date, note)
+                VALUES (%s, %s, %s, %s)
+            """, (
+                transaction_id,
+                amount - already_received,
+                date.today(),
+                "Marked fully received"
+            ))
 
         cursor.execute("""
             UPDATE transactions
