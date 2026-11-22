@@ -12,6 +12,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 
+
 # ========================================
 # APP CONFIGURATION
 # ========================================
@@ -24,16 +25,15 @@ app.config["JSON_SORT_KEYS"] = False
 
 logging.basicConfig(level=logging.INFO)
 
-
 # ========================================
-# LOCAL MYSQL CONFIGURATION
+# MYSQL CONFIGURATION
 # ========================================
 
-DB_HOST = "localhost"
-DB_PORT = 3306
-DB_USER = "root"
-DB_PASSWORD = "MANOJARUNA@2005"
-DB_NAME = "money_tracker"
+DB_HOST = os.environ.get("DB_HOST")
+DB_PORT = int(os.environ.get("DB_PORT", "4000"))
+DB_USER = os.environ.get("DB_USER")
+DB_PASSWORD = os.environ.get("DB_PASSWORD")
+DB_NAME = os.environ.get("DB_NAME", "money_tracker")
 
 
 # ========================================
@@ -115,8 +115,6 @@ def db_error(operation, error):
         "error": "Database operation failed"
 
     }), 500
-
-
 # ========================================
 # MONTH END RECORD OPTIMIZATION
 # ========================================
