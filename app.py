@@ -1,4 +1,3 @@
-
 from flask import Flask, jsonify, request, send_from_directory
 
 import mysql.connector
@@ -27,14 +26,14 @@ logging.basicConfig(level=logging.INFO)
 
 
 # ========================================
-# MYSQL CONFIGURATION
+# LOCAL MYSQL CONFIGURATION
 # ========================================
 
-DB_HOST = os.environ.get("DB_HOST")
-DB_PORT = int(os.environ.get("DB_PORT", "4000"))
-DB_USER = os.environ.get("DB_USER")
-DB_PASSWORD = os.environ.get("DB_PASSWORD")
-DB_NAME = os.environ.get("DB_NAME", "money_tracker")
+DB_HOST = "localhost"
+DB_PORT = 3306
+DB_USER = "root"
+DB_PASSWORD = "MANOJARUNA@2005"
+DB_NAME = "money_tracker"
 
 
 # ========================================
@@ -697,6 +696,260 @@ def mark_income_received(transaction_id):
     finally:
 
         close_db(connection, cursor)
+
+
+
+
+
+# ========================================
+# BANK TRANSFER - SAVE
+# ========================================
+
+@app.route("/api/bank-transfers", methods=["POST"])
+def add_bank_transfer():
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    try:
+        amount_value = data.get("amount")
+
+        if isinstance(amount_value, bool) or amount_value is None:
+            raise InvalidOperation
+
+        amount = Decimal(str(amount_value))
+
+        if (
+            not amount.is_finite()
+            or amount <= 0
+            or amount >= Decimal("100000000")
+        ):
+            raise InvalidOperation
+
+        amount = amount.quantize(Decimal("0.01"))
+
+    except (InvalidOperation, ValueError, TypeError):
+        return jsonify({"error": "Invalid amount"}), 400
+
+    transfer_date = data.get("transfer_date")
+    bank_name = data.get("bank_name")
+    note = data.get("note")
+
+    try:
+        if not isinstance(transfer_date, str):
+            raise ValueError
+
+        parsed_date = date.fromisoformat(transfer_date)
+
+        if parsed_date.isoformat() != transfer_date:
+            raise ValueError
+
+        if parsed_date > date.today():
+            raise ValueError
+
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid transfer date"}), 400
+
+    if bank_name is not None:
+        if not isinstance(bank_name, str) or len(bank_name) > 100:
+            return jsonify({"error": "Invalid bank name"}), 400
+        bank_name = bank_name.strip() or None
+
+    if note is not None:
+        if not isinstance(note, str) or len(note) > 255:
+            return jsonify({"error": "Invalid note"}), 400
+        note = note.strip() or None
+
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
+
+        # Calculate the balance for the month selected in the transfer form.
+        # Only received income is available; pending income is excluded.
+        month_start = parsed_date.replace(day=1)
+
+        if parsed_date.month == 12:
+            next_month_start = date(parsed_date.year + 1, 1, 1)
+        else:
+            next_month_start = date(
+                parsed_date.year, parsed_date.month + 1, 1
+            )
+
+        cursor.execute("""
+            SELECT
+                COALESCE(SUM(
+                    CASE
+                        WHEN type = 'income' AND status = 'received'
+                        THEN amount ELSE 0
+                    END
+                ), 0) AS received_income,
+                COALESCE(SUM(
+                    CASE
+                        WHEN type = 'expense'
+                        THEN amount ELSE 0
+                    END
+                ), 0) AS total_expenses
+            FROM transactions
+            WHERE transaction_date >= %s
+              AND transaction_date < %s
+              AND type IN ('income', 'expense')
+        """, (month_start, next_month_start))
+
+        transaction_totals = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT COALESCE(SUM(amount), 0)
+            FROM bank_transfers
+            WHERE transfer_date >= %s
+              AND transfer_date < %s
+        """, (month_start, next_month_start))
+
+        previous_transfers = cursor.fetchone()[0]
+
+        available_balance = (
+            Decimal(str(transaction_totals[0]))
+            - Decimal(str(transaction_totals[1]))
+            - Decimal(str(previous_transfers))
+        )
+
+        if amount > available_balance:
+            connection.rollback()
+            return jsonify({
+                "error": "Insufficient available balance",
+                "available_balance": float(
+                    max(available_balance, Decimal("0.00"))
+                )
+            }), 400
+
+        cursor.execute("""
+            INSERT INTO bank_transfers
+            (amount, bank_name, note, transfer_date)
+            VALUES (%s, %s, %s, %s)
+        """, (amount, bank_name, note, parsed_date))
+
+        new_id = cursor.lastrowid
+        connection.commit()
+
+        return jsonify({
+            "message": "Bank transfer saved successfully",
+            "id": new_id,
+            "amount": float(amount),
+            "available_balance": float(available_balance - amount)
+        }), 201
+
+    except Exception as error:
+        if connection is not None:
+            connection.rollback()
+        return db_error("Saving bank transfer", error)
+
+    finally:
+        close_db(connection, cursor)
+
+# ========================================
+# BANK TRANSFER - GET ALL
+# ========================================
+
+@app.route("/api/bank-transfers", methods=["GET"])
+def get_bank_transfers():
+
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT
+                id,
+                amount,
+                bank_name,
+                note,
+                transfer_date,
+                created_at
+            FROM bank_transfers
+            ORDER BY transfer_date DESC, id DESC
+        """)
+
+        rows = cursor.fetchall()
+
+        total_transferred = Decimal("0.00")
+        monthly_transferred = Decimal("0.00")
+
+        today = date.today()
+        current_month = today.strftime("%Y-%m")
+
+        for item in rows:
+
+            amount = Decimal(str(item["amount"]))
+
+            total_transferred += amount
+
+            item["amount"] = float(amount)
+
+            if item["transfer_date"]:
+                item["transfer_date"] = (
+                    item["transfer_date"].isoformat()
+                )
+
+                if item["transfer_date"].startswith(current_month):
+                    monthly_transferred += amount
+
+            if item["created_at"]:
+                item["created_at"] = (
+                    item["created_at"].isoformat()
+                )
+
+        # Current month's available balance after all saved bank transfers.
+        month_start = today.replace(day=1)
+        if today.month == 12:
+            next_month_start = date(today.year + 1, 1, 1)
+        else:
+            next_month_start = date(today.year, today.month + 1, 1)
+
+        cursor.execute("""
+            SELECT
+                COALESCE(SUM(
+                    CASE
+                        WHEN type = 'income' AND status = 'received'
+                        THEN amount ELSE 0
+                    END
+                ), 0) AS received_income,
+                COALESCE(SUM(
+                    CASE WHEN type = 'expense' THEN amount ELSE 0 END
+                ), 0) AS total_expenses
+            FROM transactions
+            WHERE transaction_date >= %s
+              AND transaction_date < %s
+              AND type IN ('income', 'expense')
+        """, (month_start, next_month_start))
+
+        transaction_totals = cursor.fetchone()
+
+        current_month_available = (
+            Decimal(str(transaction_totals["received_income"]))
+            - Decimal(str(transaction_totals["total_expenses"]))
+            - monthly_transferred
+        )
+
+        return jsonify({
+            "transfers": rows,
+            "total_transferred": float(total_transferred),
+            "monthly_transferred": float(monthly_transferred),
+            "available_balance": float(current_month_available)
+        }), 200
+
+    except Exception as error:
+        return db_error("Fetching bank transfers", error)
+
+    finally:
+        close_db(connection, cursor)
+
 
 # ========================================
 # EDIT INCOME
