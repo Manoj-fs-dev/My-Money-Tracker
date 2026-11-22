@@ -942,7 +942,7 @@ function updatePreviousMonthPendingSalary() {
 
         const historyButton = document.createElement("button");
         historyButton.type = "button";
-        historyButton.className = "neon-modal-btn";
+        historyButton.className = "neon-modal-btn salary-history-btn";
         historyButton.textContent = `History (${item.payments.length})`;
         historyButton.addEventListener("click", () => showPaymentHistory(item));
 
