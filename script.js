@@ -40,6 +40,7 @@ const currentDateElement = $("#current-date");
 // Forms
 const incomeForm = $("#income-form");
 const expenseForm = $("#expense-form");
+const transferForm = $("#transfer-form");
 
 const incomeDateInput = $("#income-date");
 const incomeAmountInput = $("#income-amount");
@@ -49,6 +50,11 @@ const expenseDateInput = $("#expense-date");
 const expenseAmountInput = $("#expense-amount");
 const expenseCategoryInput = $("#expense-category");
 const expenseNoteInput = $("#expense-note");
+
+const transferDateInput = $("#transfer-date");
+const transferAmountInput = $("#transfer-amount");
+const transferNoteInput = $("#transfer-note");
+const totalTransfersElement = $("#total-transfers");
 
 // Actual containers in your index.html
 const monthlyOverviewContainer = $("#monthly-overview-data");
@@ -140,13 +146,18 @@ async function apiRequest(endpoint, options = {}) {
 }
 
 function normalizeTransaction(item) {
+    const category = item.category || (
+        item.type === "income" ? "Salary" : "Other"
+    );
+    const isTransfer =
+        item.type === "transfer" ||
+        String(category).trim().toLowerCase() === "bank transfer";
+
     return {
         id: Number(item.id),
-        type: item.type,
+        type: isTransfer ? "transfer" : item.type,
         amount: Number(item.amount),
-        category: item.category || (
-            item.type === "income" ? "Salary" : "Other"
-        ),
+        category,
         note: item.note || "",
         date: String(
             item.date || item.transaction_date || ""
@@ -552,9 +563,20 @@ function getPendingIncome(list) {
         .reduce((sum, item) => sum + item.amount, 0);
 }
 
+function isBankTransfer(item) {
+    return item.type === "transfer" ||
+        String(item.category || "").trim().toLowerCase() === "bank transfer";
+}
+
+function getTransfers(list) {
+    return list
+        .filter(isBankTransfer)
+        .reduce((sum, item) => sum + item.amount, 0);
+}
+
 function getExpenses(list) {
     return list
-        .filter((item) => item.type === "expense")
+        .filter((item) => item.type === "expense" && !isBankTransfer(item))
         .reduce((sum, item) => sum + item.amount, 0);
 }
 
@@ -584,7 +606,8 @@ function updateMonthlyOverview() {
 
     const pendingTotal = getPendingIncome(list);
     const expenses = getExpenses(list);
-    const balance = income - expenses;
+    const transfers = getTransfers(list);
+    const balance = income - expenses - transfers;
 
     container.replaceChildren();
 
@@ -703,6 +726,7 @@ function updateExpenseBreakdown() {
     const expenses = transactions.filter(
         (item) =>
             item.type === "expense" &&
+            !isBankTransfer(item) &&
             typeof item.date === "string" &&
             item.date.startsWith(month)
     );
@@ -951,22 +975,23 @@ function renderTransactions() {
     list.forEach((item) => {
         const row = document.createElement("tr");
         const isIncome = item.type === "income";
+        const isTransfer = isBankTransfer(item);
 
         const dateCell = document.createElement("td");
         dateCell.textContent = formatDate(item.date);
 
         const typeCell = document.createElement("td");
-        typeCell.textContent = isIncome ? "Income" : "Expense";
+        typeCell.textContent = isIncome ? "Income" : (isTransfer ? "Bank Transfer" : "Expense");
 
         typeCell.style.color = isIncome
             ? "var(--green)"
-            : "var(--red)";
+            : (isTransfer ? "var(--orange)" : "var(--red)");
 
         const categoryCell = document.createElement("td");
 
         categoryCell.textContent = isIncome
             ? (item.note || "Daily Income")
-            : (item.category || "Other");
+            : (isTransfer ? (item.note || "Own Bank Account") : (item.category || "Other"));
 
         categoryCell.title = item.note || "";
 
@@ -977,11 +1002,17 @@ function renderTransactions() {
 
         amountCell.style.color = isIncome
             ? "var(--green)"
-            : "var(--red)";
+            : (isTransfer ? "var(--orange)" : "var(--red)");
 
         const statusCell = document.createElement("td");
 
-        if (isIncome) {
+        if (isTransfer) {
+            const badge = document.createElement("span");
+            badge.className = "badge rounded-pill text-bg-warning";
+            badge.textContent = "Transferred";
+            statusCell.appendChild(badge);
+
+        } else if (isIncome) {
             const received = item.status === "received";
             const actions = document.createElement("div");
             actions.style.cssText = "display:flex;align-items:center;gap:7px;flex-wrap:wrap;";
@@ -1043,7 +1074,8 @@ function updateDashboard() {
 
     const income = getReceivedIncome(list);
     const expenses = getExpenses(list);
-    const balance = income - expenses;
+    const transfers = getTransfers(list);
+    const balance = income - expenses - transfers;
 
     if (totalIncomeElement) {
         totalIncomeElement.textContent = formatCurrency(income);
@@ -1058,6 +1090,11 @@ function updateDashboard() {
 
         availableBalanceElement.style.color =
             balance < 0 ? "var(--red)" : "var(--primary)";
+    }
+
+    if (totalTransfersElement) {
+        totalTransfersElement.textContent =
+            `Transferred to bank: ${formatCurrency(transfers)}`;
     }
 
     if (monthlyLimitElement) {
@@ -1319,6 +1356,89 @@ if (expenseForm) {
                 "Database Error"
             );
 
+        } finally {
+            if (submitButton) submitButton.disabled = false;
+        }
+    });
+}
+
+// ========================================
+// BANK TRANSFER TO OWN ACCOUNT
+// Stored as an expense with a dedicated category so the
+// existing MySQL /transactions API can be reused safely.
+// Dashboard separates it from everyday expenses.
+// ========================================
+
+if (transferForm) {
+    transferForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const date = transferDateInput.value;
+        const amount = Number(transferAmountInput.value);
+        const note = transferNoteInput.value.trim();
+
+        if (!date || !Number.isFinite(amount) || amount <= 0 || amount >= 100000000) {
+            showToast("Enter a valid transfer date and amount.", "error", "Invalid Transfer");
+            return;
+        }
+
+        if (date > getTodayDate()) {
+            showToast("Future dates are not allowed.", "error", "Invalid Date");
+            transferDateInput.focus();
+            return;
+        }
+
+        const monthList = transactions.filter((item) => item.date.startsWith(date.slice(0, 7)));
+        const availableForMonth =
+            getReceivedIncome(monthList) - getExpenses(monthList) - getTransfers(monthList);
+
+        if (amount > availableForMonth) {
+            showToast(
+                `Available balance is ${formatCurrency(availableForMonth)}. You cannot transfer ${formatCurrency(amount)}.`,
+                "warning",
+                "Insufficient Balance"
+            );
+            transferAmountInput.focus();
+            return;
+        }
+
+        const submitButton = transferForm.querySelector('[type="submit"]');
+        if (submitButton) submitButton.disabled = true;
+
+        try {
+            // The current backend accepts income/expense transaction types.
+            // Save as an expense with a unique category, then classify it
+            // separately as a transfer when loading dashboard records.
+            await createTransaction({
+                type: "expense",
+                date,
+                amount,
+                category: "Bank Transfer",
+                note: note || "Transferred to own bank account",
+                status: "received"
+            });
+
+            const loaded = await loadTransactions();
+            if (!loaded) {
+                throw new Error("Transfer saved, but dashboard could not refresh. Reload the page.");
+            }
+
+            transferForm.reset();
+            setDefaultDates();
+
+            showToast(
+                `${formatCurrency(amount)} transferred successfully. Your available balance has been updated.`,
+                "success",
+                "Bank Transfer Successful!"
+            );
+
+        } catch (error) {
+            console.error("Bank transfer failed:", error);
+            showToast(
+                `Transfer failed: ${error.message}`,
+                "error",
+                "Transfer Error"
+            );
         } finally {
             if (submitButton) submitButton.disabled = false;
         }
@@ -1609,12 +1729,20 @@ function setDefaultDates() {
         expenseDateInput.value = getTodayDate();
     }
 
+    if (transferDateInput && !transferDateInput.value) {
+        transferDateInput.value = getTodayDate();
+    }
+
     if (incomeDateInput) {
         incomeDateInput.max = getTodayDate();
     }
 
     if (expenseDateInput) {
         expenseDateInput.max = getTodayDate();
+    }
+
+    if (transferDateInput) {
+        transferDateInput.max = getTodayDate();
     }
 }
 
