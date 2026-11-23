@@ -62,6 +62,11 @@
                     <span>Add Expense</span>
                 </a>
 
+                <a href="#bank-transfer" class="nav-link">
+                    <i class="bi bi-bank2"></i>
+                    <span>Bank Transfer</span>
+                </a>
+
                 <a href="#budget" class="nav-link">
                     <i class="bi bi-calendar3"></i>
                     <span>Monthly Budget</span>
@@ -164,6 +169,7 @@
                         <small>Received Income - Expenses</small>
                         <h2 id="available-balance">₹0</h2>
                         <span>Your current balance</span>
+                        <small id="total-transfers" class="transfer-summary">Transferred to bank: ₹0</small>
                     </div>
                 </article>
 
@@ -246,6 +252,11 @@
                         <a href="#expense" class="action-button action-expense">
                             <i class="bi bi-dash-circle-fill"></i>
                             <span>Add Expense</span>
+                        </a>
+
+                        <a href="#bank-transfer" class="action-button action-transfer">
+                            <i class="bi bi-bank2"></i>
+                            <span>Bank Transfer</span>
                         </a>
 
                         <a href="#budget" class="action-button action-budget">
@@ -508,6 +519,34 @@
                 </form>
 
             </section>
+
+            <!-- BANK TRANSFER SECTION -->
+            <section class="panel form-panel" id="bank-transfer">
+                <div class="panel-heading">
+                    <h3><i class="bi bi-bank2"></i> Transfer Money to My Bank</h3>
+                </div>
+
+                <form id="transfer-form" class="row g-3">
+                    <div class="col-md-4">
+                        <label for="transfer-date" class="form-label">Transfer Date</label>
+                        <input type="date" class="form-control" id="transfer-date" max="" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="transfer-amount" class="form-label">Amount (₹)</label>
+                        <input type="number" class="form-control" id="transfer-amount" min="0.01" step="0.01" placeholder="Enter amount" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="transfer-note" class="form-label">Bank / Account Details</label>
+                        <input type="text" class="form-control" id="transfer-note" maxlength="255" placeholder="e.g. SBI savings account">
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="submit-button transfer-submit">
+                            <i class="bi bi-check-circle-fill"></i> Confirm Transfer
+                        </button>
+                    </div>
+                </form>
+            </section>
+
 
             <!-- PREVIOUS MONTH PENDING SALARY -->
             <section class="panel previous-pending-panel">
