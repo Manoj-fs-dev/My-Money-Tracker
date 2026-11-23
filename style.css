@@ -3070,3 +3070,28 @@ select:-webkit-autofill {
     }
 
 }
+/* ========================================
+   BANK TRANSFER ADD-ON
+======================================== */
+.transfer-summary {
+    display: block;
+    margin-top: 7px;
+    color: var(--orange);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.5;
+}
+
+.action-transfer {
+    border-color: rgba(255, 180, 84, 0.24);
+}
+
+.action-transfer i,
+.transfer-submit i {
+    color: var(--orange);
+}
+
+.transfer-submit:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
