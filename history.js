@@ -358,8 +358,6 @@ function renderHistory() {
 
     let totalExpense = 0;
 
-    let totalBankTransfers = 0;
-
 
     const dailyRecords = new Map();
 
@@ -420,12 +418,6 @@ function renderHistory() {
             record.expense += item.amount;
 
             totalExpense += item.amount;
-
-            if (
-                String(item.category || "").trim().toLowerCase() === "bank transfer"
-            ) {
-                totalBankTransfers += item.amount;
-            }
 
         }
 
@@ -497,7 +489,7 @@ function renderHistory() {
     // CALCULATIONS
     // ========================================
 
-    const balance = balance + totalBankTransfers;
+    const balance = totalIncome - totalExpense;
 
 
     const budgetUsed = monthlyBudget > 0
